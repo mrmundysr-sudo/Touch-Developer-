@@ -135,6 +135,12 @@ public class GitHubDemoService implements GitHubService {
     }
 
     @Override
+    public Result<String> stageFileBytes(Repo repo, String path, byte[] content) {
+        staging.stageBinary(path, content);
+        return Result.demo("Staged binary " + path + " in the demo staging area only.", path);
+    }
+
+    @Override
     public Result<String> stageFile(Repo repo, String path, String content) {
         staging.stage(path, content);
         return Result.demo("Staged " + path + " in the demo staging area only.", path);
