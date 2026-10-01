@@ -36,6 +36,14 @@ back to a clearly labelled demo result, following the handoff instruction to
 - Files larger than roughly 1 MB cannot be read through the GitHub contents API
   path used here; the app reports this rather than failing silently.
 
+## GitHub repository creation
+
+- Creating repositories uses GitHub's `POST /user/repos` endpoint. Fine-grained
+  personal access tokens need the **Repository creation: write** or
+  **Administration: write** permission. The app reports GitHub's error and names
+  the missing permission when creation is denied; it never reports an
+  unconfirmed repository as created.
+
 ## Handoff package
 
 - The "full Android source project" section is built from locally staged and
