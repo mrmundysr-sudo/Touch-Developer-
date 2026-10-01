@@ -235,14 +235,6 @@ public final class Http {
         finally { if (conn != null) conn.disconnect(); }
     }
 
-    public static Response post(String url, String token, String jsonBody) {
-        return request("POST", url, token, jsonBody, "application/json");
-    }
-
-    public static Response delete(String url, String token, String jsonBody) {
-        return request("DELETE", url, token, jsonBody, "application/json");
-    }
-
     private static String readFully(InputStream in) {
         if (in == null) {
             return "";
