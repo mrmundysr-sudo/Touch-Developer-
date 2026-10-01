@@ -47,6 +47,9 @@ public interface GitHubService {
     /** Stages a new or replaced file locally. Does not publish anything. */
     Result<String> stageFile(Repo repo, String path, String content);
 
+    /** Stages raw binary bytes locally for a later confirmed push. */
+    Result<String> stageFileBytes(Repo repo, String path, byte[] content);
+
     /** Stages a deletion locally. */
     Result<String> stageDelete(Repo repo, RepoFile file);
 
