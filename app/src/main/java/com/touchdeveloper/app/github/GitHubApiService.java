@@ -410,7 +410,8 @@ public class GitHubApiService implements GitHubService {
             String uploadObject = uploadIndex >= 0 ? batch.body.substring(uploadIndex) : batch.body;
             String uploadAuth = Http.stringField(uploadObject, "Authorization");
             if (uploadAuth == null) uploadAuth = basic;
-            Http.Response upload = Http.putBytes(href, uploadAuth, bytes);
+            String uploadType = Http.stringField(uploadObject, "Content-Type");
+            Http.Response upload = Http.putBytes(href, uploadAuth, uploadType, bytes);
             if (!upload.ok() && upload.code != 200 && upload.code != 201 && upload.code != 204) {
                 return "Git LFS object upload failed (" + Http.statusText(upload) + ": " + upload.body + ")";
             }
