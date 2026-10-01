@@ -172,6 +172,52 @@ public final class Http {
         }
     }
 
+    /** Streams raw bytes using the exact headers returned by a Git LFS upload action. */
+    public static Response putBytes(String url, Map<String, String> headers, byte[] bytes) {
+        byte[] payload = bytes == null ? new byte[0] : bytes;
+        Response last = new Response(-1, "The upload did not start.", true);
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            HttpURLConnection conn = null;
+            try {
+                conn = (HttpURLConnection) new URL(url).openConnection();
+                conn.setRequestMethod("PUT");
+                conn.setConnectTimeout(60000);
+                conn.setReadTimeout(600000);
+                conn.setRequestProperty("User-Agent", "TouchDeveloper/1.0");
+                conn.setRequestProperty("Connection", "close");
+                if (headers != null) {
+                    for (Map.Entry<String, String> header : headers.entrySet()) {
+                        if (header.getKey() != null && header.getValue() != null) {
+                            conn.setRequestProperty(header.getKey(), header.getValue());
+                        }
+                    }
+                }
+                conn.setFixedLengthStreamingMode(payload.length);
+                conn.setDoOutput(true);
+                try (OutputStream out = conn.getOutputStream()) {
+                    out.write(payload);
+                    out.flush();
+                }
+                int code = conn.getResponseCode();
+                InputStream stream = code >= 400 ? conn.getErrorStream() : conn.getInputStream();
+                Response response = new Response(code, readFully(stream));
+                if (response.ok() || !response.transportError) return response;
+                last = response;
+            } catch (Exception e) {
+                last = new Response(-1, transportMessage(e), true);
+            } finally {
+                if (conn != null) conn.disconnect();
+            }
+            try {
+                Thread.sleep(1000L * attempt);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        return last;
+    }
+
     /** Streams raw bytes to a pre-authorized upload URL. */
     public static Response putBytes(String url, String authorization, byte[] bytes) {
         return putBytes(url, authorization, "application/octet-stream", bytes);
