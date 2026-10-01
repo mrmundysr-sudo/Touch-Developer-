@@ -11,6 +11,8 @@ that depend on credentials or an unverified endpoint behave as described in
   (Local, Committed, Pushed, Building, Successful, Failed)
 - Latest APK and latest source ZIP names
 - Refresh button that calls `GitHubService.listRepositories()`
+- Create repository form with name, optional description, private-by-default visibility,
+  public/private choice, a README-created default branch, and a confirmation step
 - Every repository row is clickable and opens the Repository File Screen
 - `[DEMO]` label on demo repositories
 
@@ -89,5 +91,5 @@ that depend on credentials or an unverified endpoint behave as described in
 
 ## Tests
 
-- 14 JVM unit tests covering demo labelling, safety protections, staging,
+- 15 JVM unit tests covering demo labelling, safety protections, staging,
   ZIP/handoff creation, checksum generation, and JSON parsing
