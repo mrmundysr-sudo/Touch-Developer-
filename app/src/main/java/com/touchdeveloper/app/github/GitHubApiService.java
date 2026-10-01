@@ -408,9 +408,8 @@ public class GitHubApiService implements GitHubService {
             if (href == null) return "Git LFS did not return an upload URL";
             int uploadIndex = batch.body.indexOf("\"upload\"");
             String uploadObject = uploadIndex >= 0 ? batch.body.substring(uploadIndex) : batch.body;
-            String uploadAuth = Http.stringField(uploadObject, "Authorization");
-            String uploadType = Http.stringField(uploadObject, "Content-Type");
-            Http.Response upload = Http.putBytes(href, uploadAuth, uploadType, bytes);
+            Map<String, String> uploadHeaders = lfsUploadHeaders(uploadObject);
+            Http.Response upload = Http.putBytes(href, uploadHeaders, bytes);
             if (!upload.ok() && upload.code != 200 && upload.code != 201 && upload.code != 204) {
                 return "Git LFS object upload failed (" + Http.statusText(upload) + ": " + upload.body + ")";
             }
@@ -422,6 +421,32 @@ public class GitHubApiService implements GitHubService {
         } catch (Exception e) {
             return "Git LFS upload failed: " + e.getMessage();
         }
+    }
+
+    private Map<String, String> lfsUploadHeaders(String uploadObject) {
+        Map<String, String> headers = new java.util.LinkedHashMap<>();
+        int headerKey = uploadObject.indexOf("\"header\"");
+        if (headerKey < 0) return headers;
+        int open = uploadObject.indexOf('{', headerKey);
+        if (open < 0) return headers;
+        int depth = 0;
+        int close = -1;
+        for (int i = open; i < uploadObject.length(); i++) {
+            char c = uploadObject.charAt(i);
+            if (c == '{') depth++;
+            else if (c == '}' && --depth == 0) { close = i; break; }
+        }
+        if (close < 0) return headers;
+        String headerObject = uploadObject.substring(open, close + 1);
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("\\\"([^\\\"]+)\\\"\\s*:\\s*\\\"((?:\\\\.|[^\\\"])*)\\\"")
+                .matcher(headerObject);
+        while (matcher.find()) {
+            String key = matcher.group(1);
+            String value = matcher.group(2).replace("\\\"", "\"").replace("\\\\", "\\");
+            headers.put(key, value);
+        }
+        return headers;
     }
 
     private String putSmallFile(Repo repo, String path, String content, String message) {
