@@ -339,6 +339,12 @@ public class GitHubApiService implements GitHubService {
         for (Map.Entry<String, byte[]> entry : staging.getBinaryUpserts().entrySet()) {
             String path = entry.getKey();
             byte[] bytes = entry.getValue() == null ? new byte[0] : entry.getValue();
+            // GitHub Contents API rejects files over 1 MB. Refuse before Base64 encoding so
+            // a large ZIP cannot allocate a giant in-memory JSON request and crash Android.
+            if (bytes.length > 1024 * 1024) {
+                problems.add(path + " is " + bytes.length + " bytes; GitHub Contents API supports files up to 1 MB here. The ZIP was not sent.");
+                continue;
+            }
             String existingSha = existingSha(repo, path);
             StringBuilder json = new StringBuilder();
             json.append("{\"message\":\"").append(Json.escape(message)).append("\",");
