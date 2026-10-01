@@ -172,6 +172,27 @@ public final class Http {
         }
     }
 
+    /** Streams raw bytes to a pre-authorized upload URL. */
+    public static Response putBytes(String url, String authorization, byte[] bytes) {
+        HttpURLConnection conn = null;
+        try {
+            conn = (HttpURLConnection) new URL(url).openConnection();
+            conn.setRequestMethod("PUT");
+            conn.setConnectTimeout(30000);
+            conn.setReadTimeout(180000);
+            conn.setRequestProperty("User-Agent", "TouchDeveloper/1.0");
+            if (authorization != null && !authorization.isEmpty()) conn.setRequestProperty("Authorization", authorization);
+            conn.setRequestProperty("Content-Type", "application/octet-stream");
+            conn.setFixedLengthStreamingMode(bytes == null ? 0 : bytes.length);
+            conn.setDoOutput(true);
+            try (OutputStream out = conn.getOutputStream()) { if (bytes != null) out.write(bytes); }
+            int code = conn.getResponseCode();
+            InputStream stream = code >= 400 ? conn.getErrorStream() : conn.getInputStream();
+            return new Response(code, readFully(stream));
+        } catch (Exception e) { return new Response(-1, transportMessage(e), true); }
+        finally { if (conn != null) conn.disconnect(); }
+    }
+
     public static Response patch(String url, String token, String jsonBody) {
         return request("PATCH", url, token, jsonBody, "application/json");
     }
