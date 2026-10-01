@@ -42,7 +42,7 @@ public class StagingArea {
     }
 
     public boolean isEmpty() {
-        return upserts.isEmpty() && deletes.isEmpty() && renames.isEmpty();
+        return upserts.isEmpty() && binaryUpserts.isEmpty() && deletes.isEmpty() && renames.isEmpty();
     }
 
     public Map<String, String> getUpserts() {
