@@ -400,7 +400,7 @@ public class GitHubApiService implements GitHubService {
             java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
             String oid = toHex(digest.digest(bytes == null ? new byte[0] : bytes));
             String lfsUrl = "https://github.com/" + repo.getOwner() + "/" + repo.getName() + ".git/info/lfs/objects/batch";
-            String batchBody = "{\"operation\":\"upload\",\"transfers\":[\"basic\"],\"objects\":[{\"oid\":\"" + oid + "\",\"size\":" + (bytes == null ? 0 : bytes.length) + "}]}";
+            String batchBody = "{\"operation\":\"upload\",\"transfers\":[\"basic\"],\"ref\":{\"name\":\"refs/heads/" + Json.escape(repo.getCurrentBranch()) + "\"},\"objects\":[{\"oid\":\"" + oid + "\",\"size\":" + (bytes == null ? 0 : bytes.length) + "}]}";
             String basic = "Basic " + Base64.encodeToString(("mrmundysr-sudo:" + token).getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP);
             Http.Response batch = Http.postWithAuthorization(lfsUrl, basic, batchBody);
             if (!batch.ok()) return "Git LFS authorization failed (" + Http.statusText(batch) + ": " + batch.body + ")";
@@ -409,7 +409,6 @@ public class GitHubApiService implements GitHubService {
             int uploadIndex = batch.body.indexOf("\"upload\"");
             String uploadObject = uploadIndex >= 0 ? batch.body.substring(uploadIndex) : batch.body;
             String uploadAuth = Http.stringField(uploadObject, "Authorization");
-            if (uploadAuth == null) uploadAuth = basic;
             String uploadType = Http.stringField(uploadObject, "Content-Type");
             Http.Response upload = Http.putBytes(href, uploadAuth, uploadType, bytes);
             if (!upload.ok() && upload.code != 200 && upload.code != 201 && upload.code != 204) {
