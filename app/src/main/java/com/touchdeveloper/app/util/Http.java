@@ -198,6 +198,22 @@ public final class Http {
         finally { if (conn != null) conn.disconnect(); }
     }
 
+    public static Response get(String url, String token) {
+        return request("GET", url, token, null, null);
+    }
+
+    public static Response put(String url, String token, String jsonBody) {
+        return request("PUT", url, token, jsonBody, "application/json");
+    }
+
+    public static Response post(String url, String token, String jsonBody) {
+        return request("POST", url, token, jsonBody, "application/json");
+    }
+
+    public static Response delete(String url, String token, String jsonBody) {
+        return request("DELETE", url, token, jsonBody, "application/json");
+    }
+
     /** POST with an already-formed Authorization header, used by Git LFS. */
     public static Response postWithAuthorization(String url, String authorization, String jsonBody) {
         HttpURLConnection conn = null;
