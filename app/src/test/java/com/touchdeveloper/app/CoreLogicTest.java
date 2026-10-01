@@ -80,6 +80,15 @@ public class CoreLogicTest {
     }
 
     @Test
+    public void demoGitHubServiceNeverClaimsRepositoryWasCreated() {
+        Result<Repo> create = new GitHubDemoService().createRepository("new-touch-app", "", true);
+        assertFalse(create.ok);
+        assertFalse(create.demo);
+        assertNull(create.data);
+        assertTrue(create.message.contains("unavailable in demo mode"));
+    }
+
+    @Test
     public void protectionFlagsRiskyArtifacts() {
         assertTrue(Protection.isProtectedName("app-debug.apk"));
         assertTrue(Protection.isProtectedName("TouchDeveloper-handoff-v001.zip"));
