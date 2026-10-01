@@ -402,7 +402,7 @@ public class GitHubApiService implements GitHubService {
             String lfsUrl = "https://github.com/" + repo.getOwner() + "/" + repo.getName() + ".git/info/lfs/objects/batch";
             String batchBody = "{\"operation\":\"upload\",\"transfers\":[\"basic\"],\"objects\":[{\"oid\":\"" + oid + "\",\"size\":" + (bytes == null ? 0 : bytes.length) + "}]}";
             String basic = "Basic " + Base64.encodeToString(("mrmundysr-sudo:" + token).getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP);
-            Http.Response batch = Http.post(lfsUrl, basic, batchBody);
+            Http.Response batch = Http.postWithAuthorization(lfsUrl, basic, batchBody);
             if (!batch.ok()) return "Git LFS authorization failed (" + Http.statusText(batch) + ": " + batch.body + ")";
             String href = Http.stringField(batch.body, "href");
             if (href == null) return "Git LFS did not return an upload URL";
