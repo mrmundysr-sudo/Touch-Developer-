@@ -1,9 +1,13 @@
 package com.touchdeveloper.app.ui.screens;
 
+import android.app.AlertDialog;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.text.InputType;
 import android.view.View;
 import android.widget.Button;
+import android.widget.CheckBox;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -12,6 +16,7 @@ import com.touchdeveloper.app.model.Repo;
 import com.touchdeveloper.app.ui.Screen;
 import com.touchdeveloper.app.ui.TaskRunner;
 import com.touchdeveloper.app.ui.Ui;
+import com.touchdeveloper.app.safety.Confirmations;
 import com.touchdeveloper.app.util.Result;
 
 import java.util.List;
@@ -54,6 +59,10 @@ public class RepositoryDashboardScreen extends Screen {
         refresh.setOnClickListener(v -> loadRepositories(true));
         column.addView(refresh);
 
+        Button create = Ui.button(main, "Create repository");
+        create.setOnClickListener(v -> showCreateRepositoryDialog());
+        column.addView(create);
+
         renderRepos(column);
         return column;
     }
@@ -75,6 +84,92 @@ public class RepositoryDashboardScreen extends Screen {
         TaskRunner.run(main, "GitHub", "Loading repositories\u2026",
                 () -> main.services().gitHub().listRepositories(),
                 result -> applyResult(result, userInitiated));
+    }
+
+    private void showCreateRepositoryDialog() {
+        if (!main.services().gitHub().isConfigured()) {
+            Confirmations.info(main, "GitHub connection required",
+                    "Connect a GitHub token in Setup before creating a repository.");
+            return;
+        }
+
+        LinearLayout form = new LinearLayout(main);
+        form.setOrientation(LinearLayout.VERTICAL);
+        int pad = Ui.dp(main, 20);
+        form.setPadding(pad, Ui.dp(main, 8), pad, 0);
+
+        EditText name = new EditText(main);
+        name.setSingleLine(true);
+        name.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        name.setHint("Repository name");
+        form.addView(name);
+
+        EditText description = new EditText(main);
+        description.setSingleLine(true);
+        description.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        description.setHint("Description (optional)");
+        form.addView(description);
+
+        CheckBox makePrivate = new CheckBox(main);
+        makePrivate.setText("Private repository");
+        makePrivate.setChecked(true);
+        form.addView(makePrivate);
+
+        new AlertDialog.Builder(main)
+                .setTitle("Create GitHub repository")
+                .setMessage("A README will be added so the repository has a starting branch.")
+                .setView(form)
+                .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
+                .setPositiveButton("Continue", (dialog, which) -> {
+                    String repoName = name.getText().toString().trim();
+                    if (!isValidRepositoryName(repoName)) {
+                        Confirmations.info(main, "Check repository name",
+                                "Use 1–100 letters, numbers, periods, underscores, or hyphens. "
+                                        + "The name cannot be just a period or two periods.");
+                        return;
+                    }
+                    String repoDescription = description.getText().toString().trim();
+                    boolean privateRepo = makePrivate.isChecked();
+                    String visibility = privateRepo ? "private" : "public";
+                    Confirmations.confirmDestructive(main, "Confirm repository creation",
+                            "Create " + visibility + " repository “" + repoName + "” in your GitHub account?"
+                                    + (privateRepo ? "" : "\n\nAnyone will be able to see this repository."),
+                            () -> createRepository(repoName, repoDescription, privateRepo));
+                })
+                .show();
+    }
+
+    private boolean isValidRepositoryName(String name) {
+        return name != null && name.length() <= 100 && name.matches("[A-Za-z0-9._-]+")
+                && !".".equals(name) && !"..".equals(name);
+    }
+
+    private void createRepository(String name, String description, boolean isPrivate) {
+        TaskRunner.run(main, "GitHub", "Creating repository…",
+                () -> main.services().gitHub().createRepository(name, description, isPrivate),
+                result -> {
+                    main.services().activityLog().record("dashboard",
+                            "Create repository " + name + " (" + result.display() + ")", true);
+                    if (result.ok && result.data != null) {
+                        boolean alreadyListed = false;
+                        for (Repo repo : main.repos()) {
+                            if (repo.getFullName().equalsIgnoreCase(result.data.getFullName())) {
+                                alreadyListed = true;
+                                break;
+                            }
+                        }
+                        if (!alreadyListed) {
+                            main.repos().add(0, result.data);
+                        }
+                        main.setLastError("");
+                        if (main.currentScreen() == this) {
+                            main.refreshCurrent();
+                        }
+                        Confirmations.info(main, "Repository created", result.display());
+                    } else {
+                        Confirmations.info(main, "Repository not created", result.display());
+                    }
+                });
     }
 
     private void applyResult(Result<List<Repo>> result, boolean userInitiated) {
