@@ -101,6 +101,12 @@ public final class Http {
     }
 
     /** Turns a transport exception into a clear, actionable reason for the user. */
+    /** Prevents Base64OutputStream.close() from closing the network stream. */
+    private static final class NonClosingOutputStream extends java.io.FilterOutputStream {
+        NonClosingOutputStream(OutputStream out) { super(out); }
+        @Override public void close() throws java.io.IOException { flush(); }
+    }
+
     public static String transportMessage(Exception e) {
         String cause = e == null ? "" : e.getClass().getSimpleName();
         String detail = e == null || e.getMessage() == null ? cause : e.getMessage();
@@ -144,12 +150,17 @@ public final class Http {
             conn.setRequestProperty("Authorization", "Bearer " + token);
             conn.setRequestProperty("Content-Type", "application/json");
             conn.setDoOutput(true);
+            byte[] prefix = "{\"content\":\"".getBytes(StandardCharsets.UTF_8);
+            byte[] suffix = "\",\"encoding\":\"base64\"}".getBytes(StandardCharsets.UTF_8);
+            long byteCount = bytes == null ? 0 : bytes.length;
+            long encodedLength = 4L * ((byteCount + 2L) / 3L);
+            conn.setFixedLengthStreamingMode(prefix.length + encodedLength + suffix.length);
             try (OutputStream raw = conn.getOutputStream()) {
-                raw.write("{\\\"content\\\":\\\"".getBytes(StandardCharsets.UTF_8));
-                try (Base64OutputStream encoded = new Base64OutputStream(raw, android.util.Base64.NO_WRAP)) {
+                raw.write(prefix);
+                try (Base64OutputStream encoded = new Base64OutputStream(new NonClosingOutputStream(raw), android.util.Base64.NO_WRAP)) {
                     if (bytes != null) encoded.write(bytes);
                 }
-                raw.write("\\\" ,\\\"encoding\\\":\\\"base64\\\"}".getBytes(StandardCharsets.UTF_8));
+                raw.write(suffix);
             }
             int code = conn.getResponseCode();
             InputStream stream = code >= 400 ? conn.getErrorStream() : conn.getInputStream();
