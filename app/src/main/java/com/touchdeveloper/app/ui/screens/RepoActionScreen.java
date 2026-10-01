@@ -104,14 +104,15 @@ public class RepoActionScreen extends Screen {
                     main.toast(imported.display());
                     return;
                 }
-                Result<String> read = main.services().fileTransfer().readText(imported.data);
-                if (!read.ok) {
-                    main.toast(read.display()
-                            + " The file was saved locally but binary upload is not implemented yet.");
+                byte[] bytes;
+                try {
+                    bytes = java.nio.file.Files.readAllBytes(imported.data.toPath());
+                } catch (Exception e) {
+                    main.toast("Could not read imported file: " + e.getMessage());
                     return;
                 }
                 Result<String> staged = main.services().gitHub()
-                        .stageFile(main.selectedRepo(), selectedName, read.data);
+                        .stageFileBytes(main.selectedRepo(), selectedName, bytes);
                 log("repo", "Upload staged " + selectedName + " (" + staged.display() + ")", false);
                 Confirmations.info(main, "Upload staged",
                         staged.display() + "\n\nSource: " + selectedName
