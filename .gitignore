@@ -1,0 +1,13 @@
+*.iml
+.gradle/
+local.properties
+.idea/
+.DS_Store
+# Gradle build output only; source packages named "build" must stay tracked.
+/build/
+/*/build/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab

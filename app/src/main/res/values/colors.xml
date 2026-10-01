@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="touch_primary">#1F3B57</color>
+    <color name="touch_primary_dark">#12283C</color>
+    <color name="touch_accent">#2E7D6B</color>
+    <color name="touch_demo">#8A6D1F</color>
+    <color name="touch_ok">#1E6B3A</color>
+    <color name="touch_error">#A02020</color>
+    <color name="touch_muted">#5A6472</color>
+</resources>
