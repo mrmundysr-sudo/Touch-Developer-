@@ -3,6 +3,7 @@ package com.touchdeveloper.app.util;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import android.util.Base64OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -127,6 +128,41 @@ public final class Http {
         }
         return reason + (detail.isEmpty() || lower.startsWith(reason.toLowerCase(java.util.Locale.US))
                 ? "" : " (" + detail + ")");
+    }
+
+    /** Sends a JSON object whose content field is streamed as Base64 from bytes. */
+    public static Response postJsonWithBase64Bytes(String url, String token, byte[] bytes) {
+        HttpURLConnection conn = null;
+        try {
+            conn = (HttpURLConnection) new URL(url).openConnection();
+            conn.setRequestMethod("POST");
+            conn.setConnectTimeout(30000);
+            conn.setReadTimeout(120000);
+            conn.setRequestProperty("Accept", "application/vnd.github+json");
+            conn.setRequestProperty("X-GitHub-Api-Version", "2022-11-28");
+            conn.setRequestProperty("User-Agent", "TouchDeveloper/1.0");
+            conn.setRequestProperty("Authorization", "Bearer " + token);
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.setDoOutput(true);
+            try (OutputStream raw = conn.getOutputStream()) {
+                raw.write("{\\\"content\\\":\\\"".getBytes(StandardCharsets.UTF_8));
+                try (Base64OutputStream encoded = new Base64OutputStream(raw, android.util.Base64.NO_WRAP)) {
+                    if (bytes != null) encoded.write(bytes);
+                }
+                raw.write("\\\" ,\\\"encoding\\\":\\\"base64\\\"}".getBytes(StandardCharsets.UTF_8));
+            }
+            int code = conn.getResponseCode();
+            InputStream stream = code >= 400 ? conn.getErrorStream() : conn.getInputStream();
+            return new Response(code, readFully(stream));
+        } catch (Exception e) {
+            return new Response(-1, transportMessage(e), true);
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
+    }
+
+    public static Response patch(String url, String token, String jsonBody) {
+        return request("PATCH", url, token, jsonBody, "application/json");
     }
 
     public static Response get(String url, String token) {
