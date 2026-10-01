@@ -255,6 +255,12 @@ public class GitHubApiService implements GitHubService {
     }
 
     @Override
+    public Result<String> stageFileBytes(Repo repo, String path, byte[] content) {
+        staging.stageBinary(path, content);
+        return Result.success("Staged binary " + path + " locally (" + (content == null ? 0 : content.length) + " bytes). Nothing has been sent to GitHub yet.", path);
+    }
+
+    @Override
     public Result<String> stageFile(Repo repo, String path, String content) {
         staging.stage(path, content);
         return Result.success("Staged " + path + " locally. Nothing has been sent to GitHub yet.", path);
@@ -317,6 +323,26 @@ public class GitHubApiService implements GitHubService {
             json.append("{\"message\":\"").append(Json.escape(message)).append("\",");
             json.append("\"content\":\"").append(Base64.encodeToString(
                     content.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP)).append("\",");
+            json.append("\"branch\":\"").append(Json.escape(repo.getCurrentBranch())).append("\"");
+            if (existingSha != null) {
+                json.append(",\"sha\":\"").append(existingSha).append("\"");
+            }
+            json.append("}");
+            Http.Response response = Http.put(contentsUrl(repo, path), token, json.toString());
+            if (response.ok()) {
+                succeeded++;
+            } else {
+                problems.add(path + " (" + Http.statusText(response) + ": " + describeError(response) + ")");
+            }
+        }
+
+        for (Map.Entry<String, byte[]> entry : staging.getBinaryUpserts().entrySet()) {
+            String path = entry.getKey();
+            byte[] bytes = entry.getValue() == null ? new byte[0] : entry.getValue();
+            String existingSha = existingSha(repo, path);
+            StringBuilder json = new StringBuilder();
+            json.append("{\"message\":\"").append(Json.escape(message)).append("\",");
+            json.append("\"content\":\"").append(Base64.encodeToString(bytes, Base64.NO_WRAP)).append("\",");
             json.append("\"branch\":\"").append(Json.escape(repo.getCurrentBranch())).append("\"");
             if (existingSha != null) {
                 json.append(",\"sha\":\"").append(existingSha).append("\"");
