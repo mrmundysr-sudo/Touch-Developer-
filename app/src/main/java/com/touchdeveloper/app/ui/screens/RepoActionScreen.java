@@ -269,9 +269,25 @@ public class RepoActionScreen extends Screen {
     private void openInOpenHands() {
         Result<String> result = main.services().openHands().openRepositoryLink(main.selectedRepo());
         log("repo", "Open in OpenHands (" + result.display() + ")", false);
-        Confirmations.info(main, "Open in OpenHands",
-                result.display() + "\n\nLink: " + (result.data == null ? "not available" : result.data)
-                        + "\n\nOpening the link in a browser is a manual step in version 1.");
+        if (!result.ok || result.data == null || result.data.trim().isEmpty()) {
+            Confirmations.info(main, "OpenHands unavailable", result.display());
+            return;
+        }
+
+        // Launch the configured OpenHands URL directly in the device browser.
+        // The old implementation only displayed the URL and required the user
+        // to copy/paste it manually.
+        try {
+            android.content.Intent intent = new android.content.Intent(
+                    android.content.Intent.ACTION_VIEW,
+                    android.net.Uri.parse(result.data));
+            intent.addCategory(android.content.Intent.CATEGORY_BROWSABLE);
+            main.startActivity(intent);
+        } catch (Exception e) {
+            Confirmations.info(main, "Could not open OpenHands",
+                    "The browser could not open the prepared link.\n\n" + result.data
+                            + "\n\nError: " + e.getMessage());
+        }
     }
 
     private void deleteRepository() {
