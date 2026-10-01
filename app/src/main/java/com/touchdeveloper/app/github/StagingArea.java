@@ -16,11 +16,19 @@ import java.util.Map;
 public class StagingArea {
 
     private final Map<String, String> upserts = new LinkedHashMap<>();
+    private final Map<String, byte[]> binaryUpserts = new LinkedHashMap<>();
     private final Map<String, String> deletes = new LinkedHashMap<>();
     private final Map<String, String> renames = new LinkedHashMap<>();
 
     public void stage(String path, String content) {
         upserts.put(path, content);
+        binaryUpserts.remove(path);
+        deletes.remove(path);
+    }
+
+    public void stageBinary(String path, byte[] content) {
+        binaryUpserts.put(path, content);
+        upserts.remove(path);
         deletes.remove(path);
     }
 
@@ -55,6 +63,9 @@ public class StagingArea {
             changes.add(new CommitChange(CommitChange.Kind.MODIFY, e.getKey(),
                     "new content, " + (e.getValue() == null ? 0 : e.getValue().length()) + " chars"));
         }
+        for (Map.Entry<String, byte[]> e : binaryUpserts.entrySet()) {
+            changes.add(new CommitChange(CommitChange.Kind.MODIFY, e.getKey(), "binary content, " + (e.getValue() == null ? 0 : e.getValue().length) + " bytes"));
+        }
         for (Map.Entry<String, String> e : deletes.entrySet()) {
             changes.add(new CommitChange(CommitChange.Kind.DELETE, e.getKey(), e.getValue()));
         }
@@ -72,8 +83,13 @@ public class StagingArea {
         return paths;
     }
 
+    public Map<String, byte[]> getBinaryUpserts() {
+        return binaryUpserts;
+    }
+
     public void clear() {
         upserts.clear();
+        binaryUpserts.clear();
         deletes.clear();
         renames.clear();
     }
