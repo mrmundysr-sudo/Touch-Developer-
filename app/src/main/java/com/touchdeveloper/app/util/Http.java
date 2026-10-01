@@ -205,6 +205,27 @@ public final class Http {
         return request("PUT", url, token, jsonBody, "application/json");
     }
 
+    /** POST with an already-formed Authorization header, used by Git LFS. */
+    public static Response postWithAuthorization(String url, String authorization, String jsonBody) {
+        HttpURLConnection conn = null;
+        try {
+            conn = (HttpURLConnection) new URL(url).openConnection();
+            conn.setRequestMethod("POST");
+            conn.setConnectTimeout(30000);
+            conn.setReadTimeout(30000);
+            conn.setRequestProperty("Accept", "application/vnd.git-lfs+json");
+            conn.setRequestProperty("Content-Type", "application/vnd.git-lfs+json");
+            conn.setRequestProperty("User-Agent", "TouchDeveloper/1.0");
+            conn.setRequestProperty("Authorization", authorization);
+            conn.setDoOutput(true);
+            try (OutputStream out = conn.getOutputStream()) { out.write(jsonBody.getBytes(StandardCharsets.UTF_8)); }
+            int code = conn.getResponseCode();
+            InputStream stream = code >= 400 ? conn.getErrorStream() : conn.getInputStream();
+            return new Response(code, readFully(stream));
+        } catch (Exception e) { return new Response(-1, transportMessage(e), true); }
+        finally { if (conn != null) conn.disconnect(); }
+    }
+
     public static Response post(String url, String token, String jsonBody) {
         return request("POST", url, token, jsonBody, "application/json");
     }
