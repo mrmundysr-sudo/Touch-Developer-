@@ -339,10 +339,10 @@ public class GitHubApiService implements GitHubService {
         for (Map.Entry<String, byte[]> entry : staging.getBinaryUpserts().entrySet()) {
             String path = entry.getKey();
             byte[] bytes = entry.getValue() == null ? new byte[0] : entry.getValue();
-            // GitHub Contents API rejects files over 1 MB. Refuse before Base64 encoding so
-            // a large ZIP cannot allocate a giant in-memory JSON request and crash Android.
             if (bytes.length > 1024 * 1024) {
-                problems.add(path + " is " + bytes.length + " bytes; GitHub Contents API supports files up to 1 MB here. The ZIP was not sent.");
+                String largeError = publishLargeBinary(repo, path, bytes, message);
+                if (largeError == null) succeeded++;
+                else problems.add(path + " (" + largeError + ")");
                 continue;
             }
             String existingSha = existingSha(repo, path);
@@ -392,6 +392,42 @@ public class GitHubApiService implements GitHubService {
         refreshCommit(repo);
         return Result.success("GitHub confirmed " + succeeded + " published change(s) on "
                 + repo.getCurrentBranch() + ".", repo.getLatestCommitSha());
+    }
+
+    /** Publishes a large binary through GitHub Git data APIs without Contents API limits. */
+    private String publishLargeBinary(Repo repo, String path, byte[] bytes, String message) {
+        Http.Response blob = Http.postJsonWithBase64Bytes(API + "/repos/" + repo.getOwner() + "/" + repo.getName() + "/git/blobs", token, bytes);
+        if (!blob.ok()) return "blob upload failed (" + Http.statusText(blob) + ": " + describeError(blob) + ")";
+        String blobSha = Http.stringField(blob.body, "sha");
+        if (blobSha == null) return "GitHub did not return the uploaded blob SHA";
+        Http.Response ref = Http.get(API + "/repos/" + repo.getOwner() + "/" + repo.getName() + "/git/ref/heads/" + encode(repo.getCurrentBranch()), token);
+        if (!ref.ok()) return "could not read branch (" + Http.statusText(ref) + ": " + describeError(ref) + ")";
+        String headSha = Http.stringField(ref.body, "sha");
+        if (headSha == null) return "GitHub did not return the branch commit SHA";
+        Http.Response commit = Http.get(API + "/repos/" + repo.getOwner() + "/" + repo.getName() + "/git/commits/" + headSha, token);
+        if (!commit.ok()) return "could not read branch tree (" + Http.statusText(commit) + ": " + describeError(commit) + ")";
+        String baseTree = Http.stringField(commit.body, "sha");
+        int treeIndex = commit.body.indexOf("\"tree\"");
+        if (treeIndex >= 0) {
+            String treeObject = commit.body.substring(treeIndex);
+            String candidate = Http.stringField(treeObject, "sha");
+            if (candidate != null) baseTree = candidate;
+        }
+        if (baseTree == null) return "GitHub did not return the base tree SHA";
+        String treeBody = "{\"base_tree\":\"" + baseTree + "\",\"tree\":[{\"path\":\"" + Json.escape(path) + "\",\"mode\":\"100644\",\"type\":\"blob\",\"sha\":\"" + blobSha + "\"}]}";
+        Http.Response tree = Http.post(API + "/repos/" + repo.getOwner() + "/" + repo.getName() + "/git/trees", token, treeBody);
+        if (!tree.ok()) return "tree creation failed (" + Http.statusText(tree) + ": " + describeError(tree) + ")";
+        String treeSha = Http.stringField(tree.body, "sha");
+        if (treeSha == null) return "GitHub did not return the new tree SHA";
+        String commitBody = "{\"message\":\"" + Json.escape(message) + "\",\"tree\":\"" + treeSha + "\",\"parents\":[\"" + headSha + "\"]}";
+        Http.Response newCommit = Http.post(API + "/repos/" + repo.getOwner() + "/" + repo.getName() + "/git/commits", token, commitBody);
+        if (!newCommit.ok()) return "commit creation failed (" + Http.statusText(newCommit) + ": " + describeError(newCommit) + ")";
+        String newSha = Http.stringField(newCommit.body, "sha");
+        if (newSha == null) return "GitHub did not return the new commit SHA";
+        String refBody = "{\"sha\":\"" + newSha + "\",\"force\":false}";
+        Http.Response update = Http.patch(API + "/repos/" + repo.getOwner() + "/" + repo.getName() + "/git/refs/heads/" + encode(repo.getCurrentBranch()), token, refBody);
+        if (!update.ok()) return "branch update failed (" + Http.statusText(update) + ": " + describeError(update) + ")";
+        return null;
     }
 
     private String existingSha(Repo repo, String path) {
