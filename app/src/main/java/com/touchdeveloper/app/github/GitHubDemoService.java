@@ -85,6 +85,12 @@ public class GitHubDemoService implements GitHubService {
     }
 
     @Override
+    public Result<Repo> createRepository(String name, String description, boolean isPrivate) {
+        return Result.failure("Repository creation is unavailable in demo mode. Connect a GitHub token "
+                + "with permission to create repositories. No repository was created.");
+    }
+
+    @Override
     public Result<List<String>> listBranches(Repo repo) {
         return Result.demo("Demo branches for " + repo.getFullName() + ".", new ArrayList<>(repo.getBranches()));
     }

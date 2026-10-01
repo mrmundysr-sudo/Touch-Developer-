@@ -27,6 +27,9 @@ public interface GitHubService {
 
     Result<List<Repo>> listRepositories();
 
+    /** Creates a repository for the authenticated user after explicit UI confirmation. */
+    Result<Repo> createRepository(String name, String description, boolean isPrivate);
+
     Result<List<String>> listBranches(Repo repo);
 
     /** Refreshes branch and latest-commit information for the repository. */

@@ -82,6 +82,38 @@ public class GitHubApiService implements GitHubService {
         return Result.success("Loaded " + repos.size() + " repositories from GitHub.", repos);
     }
 
+    @Override
+    public Result<Repo> createRepository(String name, String description, boolean isPrivate) {
+        if (!isConfigured()) {
+            return Result.failure("Creating a repository requires a stored GitHub token.");
+        }
+        String cleanName = name == null ? "" : name.trim();
+        if (cleanName.isEmpty()) {
+            return Result.failure("Enter a repository name.");
+        }
+        String body = "{\"name\":\"" + Json.escape(cleanName) + "\","
+                + "\"description\":\"" + Json.escape(description == null ? "" : description.trim()) + "\","
+                + "\"private\":" + isPrivate + ",\"auto_init\":true}";
+        Http.Response response = Http.post(API + "/user/repos", token, body);
+        if (!response.ok()) {
+            String message = describeError(response);
+            if (response.code == 403 || response.code == 404) {
+                message += " If this token is fine-grained, grant Repository creation: write "
+                        + "or Administration: write, then save the updated token in Setup.";
+            }
+            return Result.failure("Repository creation failed (" + Http.statusText(response) + "): " + message);
+        }
+        String createdName = Http.stringField(response.body, "name");
+        String owner = ownerFrom(response.body);
+        String branch = Http.stringField(response.body, "default_branch");
+        if (createdName == null || owner == null) {
+            return Result.failure("GitHub returned success but did not include the repository details.");
+        }
+        Repo repo = new Repo(owner, createdName, branch == null ? "main" : branch, false);
+        return Result.success("GitHub created " + repo.getFullName() + " as a "
+                + (isPrivate ? "private" : "public") + " repository.", repo);
+    }
+
     private String ownerFrom(String repoObject) {
         int ownerIndex = repoObject.indexOf("\"owner\"");
         if (ownerIndex < 0) {
