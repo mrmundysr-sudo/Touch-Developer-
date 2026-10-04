@@ -26,6 +26,7 @@ public class GitHubApiService implements GitHubService {
 
     private static final String API = "https://api.github.com";
     private static final String ACCEPT = "application/vnd.github+json";
+    private static final int LARGE_FILE_THRESHOLD_BYTES = 5 * 1024 * 1024;
 
     private final String token;
     private final StagingArea staging = new StagingArea();
@@ -339,7 +340,7 @@ public class GitHubApiService implements GitHubService {
         for (Map.Entry<String, byte[]> entry : staging.getBinaryUpserts().entrySet()) {
             String path = entry.getKey();
             byte[] bytes = entry.getValue() == null ? new byte[0] : entry.getValue();
-            if (bytes.length > 1024 * 1024) {
+            if (bytes.length > LARGE_FILE_THRESHOLD_BYTES) {
                 String largeError = publishLargeBinary(repo, path, bytes, message);
                 if (largeError == null) succeeded++;
                 else problems.add(path + " (" + largeError + ")");
@@ -417,7 +418,9 @@ public class GitHubApiService implements GitHubService {
             String attrsError = putSmallFile(repo, ".gitattributes", attrs, message);
             if (attrsError != null) return attrsError;
             String pointer = "version https://git-lfs.github.com/spec/v1\\noid sha256:" + oid + "\\nsize " + (bytes == null ? 0 : bytes.length) + "\\n";
-            return putSmallFile(repo, path, pointer, message);
+            String pointerError = putSmallFile(repo, path, pointer, message);
+            if (pointerError != null) return pointerError;
+            return verifyLfsPointer(repo, path, oid, bytes == null ? 0 : bytes.length);
         } catch (Exception e) {
             return "Git LFS upload failed: " + e.getMessage();
         }
@@ -458,6 +461,22 @@ public class GitHubApiService implements GitHubService {
         body += "}";
         Http.Response response = Http.put(contentsUrl(repo, path), token, body);
         return response.ok() ? null : path + " commit failed (" + Http.statusText(response) + ": " + describeError(response) + ")";
+    }
+
+    private String verifyLfsPointer(Repo repo, String path, String oid, int size) {
+        Http.Response response = Http.get(contentsUrl(repo, path) + "?ref=" + encode(repo.getCurrentBranch()), token);
+        if (!response.ok()) return "Upload verification failed (" + Http.statusText(response) + ": " + describeError(response) + ")";
+        String encoded = Http.stringField(response.body, "content");
+        if (encoded == null) return "Upload verification failed: GitHub returned no pointer content.";
+        try {
+            String pointer = new String(Base64.decode(encoded.replaceAll("\\s", ""), Base64.DEFAULT), StandardCharsets.UTF_8);
+            if (!pointer.contains("oid sha256:" + oid) || !pointer.contains("size " + size)) {
+                return "Upload verification failed: GitHub stored a different LFS pointer.";
+            }
+            return null;
+        } catch (Exception e) {
+            return "Upload verification failed: could not decode the stored LFS pointer.";
+        }
     }
 
     private String toHex(byte[] bytes) {
