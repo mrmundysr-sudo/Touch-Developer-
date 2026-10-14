@@ -417,22 +417,22 @@ public class GitHubApiService implements GitHubService {
         Http.Response commit = Http.get(root + "/git/commits/" + commitSha, token);
         if (!commit.ok()) return "Could not read current commit: " + describeError(commit);
         String treeSha = Http.stringField(commit.body, "sha");
-        int treeAt = commit.body.indexOf("\\"tree\\"");
+        int treeAt = commit.body.indexOf("\"tree\"");
         if (treeAt >= 0) treeSha = Http.stringField(commit.body.substring(treeAt), "sha");
         if (treeSha == null) return "Base tree SHA missing.";
-        String treeBody = "{\\"base_tree\\":\\"" + treeSha + "\\",\\"tree\\":[{\\"path\\":\\""
-                + Json.escape(path) + "\\",\\"mode\\":\\"100644\\",\\"type\\":\\"blob\\",\\"sha\\":\\""
-                + blobSha + "\\"}]}";
+        String treeBody = "{\"base_tree\":\"" + treeSha + "\",\"tree\":[{\"path\":\""
+                + Json.escape(path) + "\",\"mode\":\"100644\",\"type\":\"blob\",\"sha\":\""
+                + blobSha + "\"}]}";
         Http.Response tree = Http.post(root + "/git/trees", token, treeBody);
         if (!tree.ok()) return "Could not create tree: " + describeError(tree);
         String newTree = Http.stringField(tree.body, "sha");
-        String commitBody = "{\\"message\\":\\"" + Json.escape(message)
-                + "\\",\\"tree\\":\\"" + newTree + "\\",\\"parents\\":[\\"" + commitSha + "\\"]}";
+        String commitBody = "{\"message\":\"" + Json.escape(message)
+                + "\",\"tree\":\"" + newTree + "\",\"parents\":[\"" + commitSha + "\"]}";
         Http.Response next = Http.post(root + "/git/commits", token, commitBody);
         if (!next.ok()) return "Could not create commit: " + describeError(next);
         String nextSha = Http.stringField(next.body, "sha");
         Http.Response update = Http.patch(root + "/git/refs/heads/" + encode(repo.getCurrentBranch()),
-                token, "{\\"sha\\":\\"" + nextSha + "\\",\\"force\\":false}");
+                token, "{\"sha\":\"" + nextSha + "\",\"force\":false}");
         if (!update.ok()) return "Branch update rejected; no file published: " + describeError(update);
         Http.Response verify = Http.get(root + "/git/ref/heads/" + encode(repo.getCurrentBranch()), token);
         if (!verify.ok() || !verify.body.contains(nextSha)) return "Could not verify updated branch head.";
