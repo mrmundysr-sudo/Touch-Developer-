@@ -208,7 +208,7 @@ public class RepoActionScreen extends Screen {
             int shown = 0;
             for (String path : files.keySet()) {
                 if (shown++ == 18) { preview.append("…and more"); break; }
-                preview.append(path).append('\\n');
+                preview.append(path).append('\n');
             }
             new AlertDialog.Builder(main)
                     .setTitle("Confirm extracted paths")
