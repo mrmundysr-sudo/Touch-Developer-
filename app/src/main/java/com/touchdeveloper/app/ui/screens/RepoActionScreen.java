@@ -138,7 +138,7 @@ public class RepoActionScreen extends Screen {
     }
 
     private void extractZip(File zipFile) {
-        TaskRunner.run(main, "ZIP", "Inspecting archive…", () -> {
+        TaskRunner.<java.util.LinkedHashMap<String, byte[]>>run(main, "ZIP", "Inspecting archive…", () -> {
             java.util.LinkedHashMap<String, byte[]> files = new java.util.LinkedHashMap<>();
             try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(zipFile)) {
                 java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
