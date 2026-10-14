@@ -111,13 +111,116 @@ public class RepoActionScreen extends Screen {
                     main.toast("Could not read imported file: " + e.getMessage());
                     return;
                 }
-                Result<String> staged = main.services().gitHub()
-                        .stageFileBytes(main.selectedRepo(), selectedName, bytes);
-                log("repo", "Upload staged " + selectedName + " (" + staged.display() + ")", false);
-                Confirmations.info(main, "Upload staged",
-                        staged.display() + "\n\nSource: " + selectedName
-                                + "\nCommit and push to publish it.");
+                if (selectedName.toLowerCase(java.util.Locale.US).endsWith(".zip")) {
+                    final String zipName = selectedName;
+                    final byte[] zipBytes = bytes;
+                    new AlertDialog.Builder(main)
+                            .setTitle("Upload ZIP")
+                            .setMessage("Upload " + zipName + " unchanged, or extract its files into the selected repository branch? Extracting will stage each file; review before pushing.")
+                            .setNegativeButton("Cancel", (d, w) -> {})
+                            .setNeutralButton("Upload ZIP as file", (d, w) -> stageUpload(zipName, zipBytes))
+                            .setPositiveButton("Extract files", (d, w) -> extractZip(imported.data))
+                            .show();
+                    return;
+                }
+                stageUpload(selectedName, bytes);
+                return;
             }
+        });
+    }
+
+    private void stageUpload(String name, byte[] bytes) {
+        Result<String> staged = main.services().gitHub()
+                .stageFileBytes(main.selectedRepo(), name, bytes);
+        log("repo", "Staged " + name + ": " + staged.display(), false);
+        Confirmations.info(main, staged.ok ? "Upload staged" : "Upload failed",
+                staged.display() + "\nReview changes, then push to publish.");
+    }
+
+    private void extractZip(File zipFile) {
+        TaskRunner.<Result<java.util.LinkedHashMap<String, byte[]>>>run(main, "ZIP", "Inspecting archive…", () -> {
+            java.util.LinkedHashMap<String, byte[]> files = new java.util.LinkedHashMap<>();
+            try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(zipFile)) {
+                java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
+                long total = 0;
+                while (entries.hasMoreElements()) {
+                    java.util.zip.ZipEntry entry = entries.nextElement();
+                    if (entry.isDirectory()) continue;
+                    String path = entry.getName().replace('\\', '/');
+                    if (path.startsWith("/") || path.contains("../") || path.equals("..")
+                            || path.contains(":") || path.startsWith("__MACOSX/")
+                            || path.endsWith(".DS_Store")) {
+                        return Result.<java.util.LinkedHashMap<String, byte[]>>failure("Unsafe ZIP path: " + path);
+                    }
+                    if (files.size() >= 2000) return Result.failure("ZIP has over 2,000 files.");
+                    try (java.io.InputStream in = zip.getInputStream(entry);
+                         java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream()) {
+                        byte[] buffer = new byte[8192];
+                        int n;
+                        while ((n = in.read(buffer)) != -1) {
+                            total += n;
+                            if (total > 150L * 1024 * 1024)
+                                return Result.failure("ZIP expands beyond 150 MiB.");
+                            out.write(buffer, 0, n);
+                        }
+                        files.put(path, out.toByteArray());
+                    }
+                }
+            } catch (Exception e) {
+                return Result.failure("Cannot extract ZIP: " + e.getMessage());
+            }
+            if (files.isEmpty()) return Result.failure("ZIP contains no files.");
+            // Strip wrapper directories until the Android project root is reached.
+            String prefix = "";
+            for (int depth = 0; depth < 6; depth++) {
+                boolean hasRoot = files.containsKey(prefix + "settings.gradle")
+                        || files.containsKey(prefix + "settings.gradle.kts")
+                        || files.containsKey(prefix + "build.gradle");
+                if (hasRoot) break;
+                String child = null;
+                boolean oneFolder = true;
+                for (String p : files.keySet()) {
+                    if (!p.startsWith(prefix)) { oneFolder = false; break; }
+                    String remainder = p.substring(prefix.length());
+                    int slash = remainder.indexOf('/');
+                    if (slash < 0) { oneFolder = false; break; }
+                    String segment = remainder.substring(0, slash);
+                    if (child == null) child = segment;
+                    else if (!child.equals(segment)) { oneFolder = false; break; }
+                }
+                if (!oneFolder || child == null) break;
+                prefix += child + "/";
+            }
+            java.util.LinkedHashMap<String, byte[]> normalized = new java.util.LinkedHashMap<>();
+            for (java.util.Map.Entry<String, byte[]> e : files.entrySet()) {
+                normalized.put(e.getKey().substring(prefix.length()), e.getValue());
+            }
+            return Result.success("Ready", normalized);
+        }, result -> {
+            if (!result.ok || result.data == null) {
+                Confirmations.info(main, "ZIP extraction failed", result.display());
+                return;
+            }
+            java.util.LinkedHashMap<String, byte[]> files = result.data;
+            StringBuilder preview = new StringBuilder();
+            preview.append(files.size()).append(" files will be staged on ")
+                    .append(main.selectedRepo().getCurrentBranch()).append(".\\n\\n");
+            int shown = 0;
+            for (String path : files.keySet()) {
+                if (shown++ == 18) { preview.append("…and more"); break; }
+                preview.append(path).append('\n');
+            }
+            new AlertDialog.Builder(main)
+                    .setTitle("Confirm extracted paths")
+                    .setMessage(preview.toString())
+                    .setNegativeButton("Cancel", (d, w) -> {})
+                    .setPositiveButton("Stage files", (d, w) -> {
+                        for (java.util.Map.Entry<String, byte[]> e : files.entrySet()) {
+                            main.services().gitHub().stageFileBytes(main.selectedRepo(), e.getKey(), e.getValue());
+                        }
+                        Confirmations.info(main, "Files staged",
+                                files.size() + " files staged. Review changes and push to GitHub.");
+                    }).show();
         });
     }
 

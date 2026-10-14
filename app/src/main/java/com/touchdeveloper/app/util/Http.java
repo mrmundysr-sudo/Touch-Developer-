@@ -279,6 +279,10 @@ public final class Http {
         return request("POST", url, token, jsonBody, "application/json");
     }
 
+    public static Response patch(String url, String token, String jsonBody) {
+        return request("PATCH", url, token, jsonBody, "application/json");
+    }
+
     public static Response delete(String url, String token, String jsonBody) {
         return request("DELETE", url, token, jsonBody, "application/json");
     }
