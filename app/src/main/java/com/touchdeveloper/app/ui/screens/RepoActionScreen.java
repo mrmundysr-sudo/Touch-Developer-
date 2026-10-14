@@ -134,7 +134,7 @@ public class RepoActionScreen extends Screen {
                 .stageFileBytes(main.selectedRepo(), name, bytes);
         log("repo", "Staged " + name + ": " + staged.display(), false);
         Confirmations.info(main, staged.ok ? "Upload staged" : "Upload failed",
-                staged.display() + "\\nReview changes, then push to publish.");
+                staged.display() + "\nReview changes, then push to publish.");
     }
 
     private void extractZip(File zipFile) {
@@ -146,7 +146,7 @@ public class RepoActionScreen extends Screen {
                 while (entries.hasMoreElements()) {
                     java.util.zip.ZipEntry entry = entries.nextElement();
                     if (entry.isDirectory()) continue;
-                    String path = entry.getName().replace('\\\\', '/');
+                    String path = entry.getName().replace('\\', '/');
                     if (path.startsWith("/") || path.contains("../") || path.equals("..")
                             || path.contains(":") || path.startsWith("__MACOSX/")
                             || path.endsWith(".DS_Store")) {
