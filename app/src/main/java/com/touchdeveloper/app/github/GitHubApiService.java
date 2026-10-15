@@ -432,8 +432,8 @@ public class GitHubApiService implements GitHubService {
                 treeEntries.append("{\"path\":\"").append(prefix).append(String.format(java.util.Locale.US, "%05d", i))
                     .append("\",\"mode\":\"100644\",\"type\":\"blob\",\"sha\":\"").append(sha).append("\"}");
             }
-            String manifest = "TOUCH_CHUNKS_V1\\npath=" + path + "\\nsha256=" + digest + "\\nsize=" + bytes.length +
-                    "\\nparts=" + count + "\\n";
+            String manifest = "TOUCH_CHUNKS_V1\npath=" + path + "\nsha256=" + digest + "\nsize=" + bytes.length +
+                    "\nparts=" + count + "\n";
             String manifestPath = path + ".touchmanifest";
             String manifestJson = "{\"content\":\"" + android.util.Base64.encodeToString(
                     manifest.getBytes(StandardCharsets.UTF_8), android.util.Base64.NO_WRAP) + "\",\"encoding\":\"base64\"}";
