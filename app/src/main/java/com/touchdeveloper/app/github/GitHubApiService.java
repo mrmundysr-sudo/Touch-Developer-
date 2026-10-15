@@ -395,60 +395,71 @@ public class GitHubApiService implements GitHubService {
                 + repo.getCurrentBranch() + ".", repo.getLatestCommitSha());
     }
 
-    /** Uploads a binary as an ordinary Git blob and atomically advances the selected branch. */
+    /**
+     * Publish large files as individually verified small Git blobs, in one atomic commit.
+     * No LFS and no oversized REST requests. The manifest is reconstructed by CI.
+     */
     private String publishLargeBinary(Repo repo, String path, byte[] bytes, String message) {
-        if (bytes == null || bytes.length > 100_000_000) {
-            return "GitHub regular Git files must be at most 100 MB.";
-        }
-        String base = API + "/repos/" + repo.getOwner() + "/" + repo.getName();
-        String branch = repo.getCurrentBranch();
-        Http.Response ref = Http.get(base + "/git/ref/heads/" + encode(branch), token);
-        if (!ref.ok()) return "Could not read branch (" + Http.statusText(ref) + ")";
-        String parent = Http.stringField(ref.body, "sha");
-        if (parent == null) return "GitHub returned no branch commit SHA.";
-        Http.Response parentCommit = Http.get(base + "/git/commits/" + parent, token);
-        if (!parentCommit.ok()) return "Could not read parent commit (" + Http.statusText(parentCommit) + ")";
-        int treeIndex = parentCommit.body.indexOf("\"tree\"");
-        String treeSha = treeIndex < 0 ? null : Http.stringField(parentCommit.body.substring(treeIndex), "sha");
-        if (treeSha == null) return "GitHub returned no base tree SHA.";
-
-        Http.Response blob = Http.postJsonWithBase64Bytes(base + "/git/blobs", token, bytes);
-        if (!blob.ok()) return "Regular Git blob upload failed (" + Http.statusText(blob) + ": " + describeError(blob) + ")";
-        String blobSha = Http.stringField(blob.body, "sha");
-        if (blobSha == null) return "GitHub returned no blob SHA.";
+        if (bytes == null || bytes.length > 100_000_000) return "Maximum supported file size is 100 MB.";
         try {
-            java.security.MessageDigest sha1 = java.security.MessageDigest.getInstance("SHA-1");
-            sha1.update(("blob " + bytes.length + "\\0").getBytes(StandardCharsets.UTF_8));
-            sha1.update(bytes);
-            if (!blobSha.equalsIgnoreCase(toHex(sha1.digest()))) {
-                return "Blob verification failed: GitHub returned a different Git object SHA.";
+            final int chunkSize = 512 * 1024;
+            String base = API + "/repos/" + repo.getOwner() + "/" + repo.getName();
+            String branch = repo.getCurrentBranch();
+            Http.Response ref = Http.get(base + "/git/ref/heads/" + encode(branch), token);
+            if (!ref.ok()) return "Could not read branch: " + Http.statusText(ref);
+            String parent = Http.stringField(ref.body, "sha");
+            if (parent == null) return "GitHub did not return the branch SHA.";
+            Http.Response parentCommit = Http.get(base + "/git/commits/" + parent, token);
+            if (!parentCommit.ok()) return "Could not read branch commit: " + Http.statusText(parentCommit);
+            int treeIndex = parentCommit.body.indexOf("\"tree\"");
+            String treeSha = treeIndex < 0 ? null : Http.stringField(parentCommit.body.substring(treeIndex), "sha");
+            if (treeSha == null) return "GitHub did not return the base tree.";
+            String digest = toHex(java.security.MessageDigest.getInstance("SHA-256").digest(bytes));
+            String prefix = ".touch-uploads/" + digest + "/";
+            StringBuilder treeEntries = new StringBuilder();
+            int count = (bytes.length + chunkSize - 1) / chunkSize;
+            for (int i = 0; i < count; i++) {
+                int start = i * chunkSize;
+                byte[] chunk = java.util.Arrays.copyOfRange(bytes, start, Math.min(bytes.length, start + chunkSize));
+                Http.Response blob = Http.postJsonWithBase64Bytes(base + "/git/blobs", token, chunk);
+                if (!blob.ok()) return "Part " + (i + 1) + "/" + count + " failed (" + Http.statusText(blob) + ": " + describeError(blob) + ")";
+                String sha = Http.stringField(blob.body, "sha");
+                java.security.MessageDigest sha1 = java.security.MessageDigest.getInstance("SHA-1");
+                sha1.update(("blob " + chunk.length + "\0").getBytes(StandardCharsets.UTF_8));
+                sha1.update(chunk);
+                if (sha == null || !sha.equalsIgnoreCase(toHex(sha1.digest()))) return "Part " + (i + 1) + " failed SHA verification.";
+                if (treeEntries.length() > 0) treeEntries.append(",");
+                treeEntries.append("{\"path\":\"").append(prefix).append(String.format(java.util.Locale.US, "%05d", i))
+                    .append("\",\"mode\":\"100644\",\"type\":\"blob\",\"sha\":\"").append(sha).append("\"}");
             }
+            String manifest = "TOUCH_CHUNKS_V1\\npath=" + path + "\\nsha256=" + digest + "\\nsize=" + bytes.length +
+                    "\\nparts=" + count + "\\n";
+            String manifestPath = path + ".touchmanifest";
+            String manifestJson = "{\"content\":\"" + android.util.Base64.encodeToString(
+                    manifest.getBytes(StandardCharsets.UTF_8), android.util.Base64.NO_WRAP) + "\",\"encoding\":\"base64\"}";
+            Http.Response manifestBlob = Http.post(base + "/git/blobs", token, manifestJson);
+            if (!manifestBlob.ok()) return "Manifest blob failed: " + Http.statusText(manifestBlob);
+            String manifestSha = Http.stringField(manifestBlob.body, "sha");
+            treeEntries.append(",{\"path\":\"").append(Json.escape(manifestPath))
+                .append("\",\"mode\":\"100644\",\"type\":\"blob\",\"sha\":\"")
+                .append(manifestSha).append("\"}");
+            String treeBody = "{\"base_tree\":\"" + treeSha + "\",\"tree\":[" + treeEntries + "]}";
+            Http.Response tree = Http.post(base + "/git/trees", token, treeBody);
+            if (!tree.ok()) return "Tree commit failed: " + Http.statusText(tree) + ": " + describeError(tree);
+            String newTree = Http.stringField(tree.body, "sha");
+            Http.Response commit = Http.post(base + "/git/commits", token, "{\"message\":\"" +
+                    Json.escape(message) + "\",\"tree\":\"" + newTree + "\",\"parents\":[\"" + parent + "\"]}");
+            if (!commit.ok()) return "Commit failed: " + Http.statusText(commit);
+            String commitSha = Http.stringField(commit.body, "sha");
+            Http.Response update = Http.request("PATCH", base + "/git/refs/heads/" + encode(branch),
+                    token, "{\"sha\":\"" + commitSha + "\",\"force\":false}", "application/json");
+            if (!update.ok()) return "Branch update failed: " + Http.statusText(update);
+            Http.Response verify = Http.get(base + "/contents/" + manifestPath.replace(" ", "%20") + "?ref=" + encode(branch), token);
+            if (!verify.ok() || !manifestSha.equals(Http.stringField(verify.body, "sha"))) return "Manifest verification failed.";
+            return null;
         } catch (Exception e) {
-            return "Blob checksum verification failed: " + e.getMessage();
+            return "Chunked upload failed: " + e.getMessage();
         }
-        String treeBody = "{\"base_tree\":\"" + treeSha + "\",\"tree\":[{\"path\":\"" +
-                Json.escape(path) + "\",\"mode\":\"100644\",\"type\":\"blob\",\"sha\":\"" + blobSha + "\"}]}";
-        Http.Response tree = Http.post(base + "/git/trees", token, treeBody);
-        if (!tree.ok()) return "Git tree update failed (" + Http.statusText(tree) + ": " + describeError(tree) + ")";
-        String newTree = Http.stringField(tree.body, "sha");
-        if (newTree == null) return "GitHub returned no updated tree SHA.";
-        String commitBody = "{\"message\":\"" + Json.escape(message) + "\",\"tree\":\"" +
-                newTree + "\",\"parents\":[\"" + parent + "\"]}";
-        Http.Response commit = Http.post(base + "/git/commits", token, commitBody);
-        if (!commit.ok()) return "Git commit failed (" + Http.statusText(commit) + ": " + describeError(commit) + ")";
-        String commitSha = Http.stringField(commit.body, "sha");
-        if (commitSha == null) return "GitHub returned no commit SHA.";
-        Http.Response update = Http.request("PATCH", base + "/git/refs/heads/" + encode(branch),
-                token, "{\"sha\":\"" + commitSha + "\",\"force\":false}", "application/json");
-        if (!update.ok()) return "Git branch update failed (" + Http.statusText(update) + ": " + describeError(update) + ")";
-        Http.Response verify = Http.get(base + "/contents/" + path.replace(" ", "%20") +
-                "?ref=" + encode(branch), token);
-        if (!verify.ok() || !blobSha.equals(Http.stringField(verify.body, "sha"))) {
-            return "Branch verification failed: uploaded Git blob is not visible at the requested path.";
-        }
-        long storedSize = Json.numericField(verify.body, "size");
-        if (storedSize != bytes.length) return "Size verification failed: expected " + bytes.length + " bytes, GitHub reports " + storedSize + ".";
-        return null;
     }
 
     private String toHex(byte[] bytes) {
