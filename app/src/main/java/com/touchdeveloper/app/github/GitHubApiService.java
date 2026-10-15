@@ -408,7 +408,7 @@ public class GitHubApiService implements GitHubService {
         if (parent == null) return "GitHub returned no branch commit SHA.";
         Http.Response parentCommit = Http.get(base + "/git/commits/" + parent, token);
         if (!parentCommit.ok()) return "Could not read parent commit (" + Http.statusText(parentCommit) + ")";
-        int treeIndex = parentCommit.body.indexOf("\\"tree\\"");
+        int treeIndex = parentCommit.body.indexOf("\"tree\"");
         String treeSha = treeIndex < 0 ? null : Http.stringField(parentCommit.body.substring(treeIndex), "sha");
         if (treeSha == null) return "GitHub returned no base tree SHA.";
 
@@ -426,20 +426,20 @@ public class GitHubApiService implements GitHubService {
         } catch (Exception e) {
             return "Blob checksum verification failed: " + e.getMessage();
         }
-        String treeBody = "{\\"base_tree\\":\\"" + treeSha + "\\",\\"tree\\":[{\\"path\\":\\"" +
-                Json.escape(path) + "\\",\\"mode\\":\\"100644\\",\\"type\\":\\"blob\\",\\"sha\\":\\"" + blobSha + "\\"}]}";
+        String treeBody = "{\"base_tree\":\"" + treeSha + "\",\"tree\":[{\"path\":\"" +
+                Json.escape(path) + "\",\"mode\":\"100644\",\"type\":\"blob\",\"sha\":\"" + blobSha + "\"}]}";
         Http.Response tree = Http.post(base + "/git/trees", token, treeBody);
         if (!tree.ok()) return "Git tree update failed (" + Http.statusText(tree) + ": " + describeError(tree) + ")";
         String newTree = Http.stringField(tree.body, "sha");
         if (newTree == null) return "GitHub returned no updated tree SHA.";
-        String commitBody = "{\\"message\\":\\"" + Json.escape(message) + "\\",\\"tree\\":\\"" +
-                newTree + "\\",\\"parents\\":[\\"" + parent + "\\"]}";
+        String commitBody = "{\"message\":\"" + Json.escape(message) + "\",\"tree\":\"" +
+                newTree + "\",\"parents\":[\"" + parent + "\"]}";
         Http.Response commit = Http.post(base + "/git/commits", token, commitBody);
         if (!commit.ok()) return "Git commit failed (" + Http.statusText(commit) + ": " + describeError(commit) + ")";
         String commitSha = Http.stringField(commit.body, "sha");
         if (commitSha == null) return "GitHub returned no commit SHA.";
         Http.Response update = Http.request("PATCH", base + "/git/refs/heads/" + encode(branch),
-                token, "{\\"sha\\":\\"" + commitSha + "\\",\\"force\\":false}", "application/json");
+                token, "{\"sha\":\"" + commitSha + "\",\"force\":false}", "application/json");
         if (!update.ok()) return "Git branch update failed (" + Http.statusText(update) + ": " + describeError(update) + ")";
         Http.Response verify = Http.get(base + "/contents/" + path.replace(" ", "%20") +
                 "?ref=" + encode(branch), token);
