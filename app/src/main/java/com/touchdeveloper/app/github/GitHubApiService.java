@@ -395,88 +395,60 @@ public class GitHubApiService implements GitHubService {
                 + repo.getCurrentBranch() + ".", repo.getLatestCommitSha());
     }
 
-    /** Uploads a large file through Git LFS, then commits its small pointer. */
+    /** Uploads a binary as an ordinary Git blob and atomically advances the selected branch. */
     private String publishLargeBinary(Repo repo, String path, byte[] bytes, String message) {
+        if (bytes == null || bytes.length > 100_000_000) {
+            return "GitHub regular Git files must be at most 100 MB.";
+        }
+        String base = API + "/repos/" + repo.getOwner() + "/" + repo.getName();
+        String branch = repo.getCurrentBranch();
+        Http.Response ref = Http.get(base + "/git/ref/heads/" + encode(branch), token);
+        if (!ref.ok()) return "Could not read branch (" + Http.statusText(ref) + ")";
+        String parent = Http.stringField(ref.body, "sha");
+        if (parent == null) return "GitHub returned no branch commit SHA.";
+        Http.Response parentCommit = Http.get(base + "/git/commits/" + parent, token);
+        if (!parentCommit.ok()) return "Could not read parent commit (" + Http.statusText(parentCommit) + ")";
+        int treeIndex = parentCommit.body.indexOf("\\"tree\\"");
+        String treeSha = treeIndex < 0 ? null : Http.stringField(parentCommit.body.substring(treeIndex), "sha");
+        if (treeSha == null) return "GitHub returned no base tree SHA.";
+
+        Http.Response blob = Http.postJsonWithBase64Bytes(base + "/git/blobs", token, bytes);
+        if (!blob.ok()) return "Regular Git blob upload failed (" + Http.statusText(blob) + ": " + describeError(blob) + ")";
+        String blobSha = Http.stringField(blob.body, "sha");
+        if (blobSha == null) return "GitHub returned no blob SHA.";
         try {
-            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
-            String oid = toHex(digest.digest(bytes == null ? new byte[0] : bytes));
-            String lfsUrl = "https://github.com/" + repo.getOwner() + "/" + repo.getName() + ".git/info/lfs/objects/batch";
-            String batchBody = "{\"operation\":\"upload\",\"transfers\":[\"basic\"],\"ref\":{\"name\":\"refs/heads/" + Json.escape(repo.getCurrentBranch()) + "\"},\"objects\":[{\"oid\":\"" + oid + "\",\"size\":" + (bytes == null ? 0 : bytes.length) + "}]}";
-            String basic = "Basic " + Base64.encodeToString(("mrmundysr-sudo:" + token).getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP);
-            Http.Response batch = Http.postWithAuthorization(lfsUrl, basic, batchBody);
-            if (!batch.ok()) return "Git LFS authorization failed (" + Http.statusText(batch) + ": " + batch.body + ")";
-            String href = Http.stringField(batch.body, "href");
-            if (href == null) return "Git LFS did not return an upload URL";
-            int uploadIndex = batch.body.indexOf("\"upload\"");
-            String uploadObject = uploadIndex >= 0 ? batch.body.substring(uploadIndex) : batch.body;
-            Map<String, String> uploadHeaders = lfsUploadHeaders(uploadObject);
-            Http.Response upload = Http.putBytes(href, uploadHeaders, bytes);
-            if (!upload.ok() && upload.code != 200 && upload.code != 201 && upload.code != 204) {
-                return "Git LFS object upload failed (" + Http.statusText(upload) + ": " + upload.body + ")";
+            java.security.MessageDigest sha1 = java.security.MessageDigest.getInstance("SHA-1");
+            sha1.update(("blob " + bytes.length + "\\0").getBytes(StandardCharsets.UTF_8));
+            sha1.update(bytes);
+            if (!blobSha.equalsIgnoreCase(toHex(sha1.digest()))) {
+                return "Blob verification failed: GitHub returned a different Git object SHA.";
             }
-            String attrs = path + " filter=lfs diff=lfs merge=lfs -text\\n";
-            String attrsError = putSmallFile(repo, ".gitattributes", attrs, message);
-            if (attrsError != null) return attrsError;
-            String pointer = "version https://git-lfs.github.com/spec/v1\\noid sha256:" + oid + "\\nsize " + (bytes == null ? 0 : bytes.length) + "\\n";
-            String pointerError = putSmallFile(repo, path, pointer, message);
-            if (pointerError != null) return pointerError;
-            return verifyLfsPointer(repo, path, oid, bytes == null ? 0 : bytes.length);
         } catch (Exception e) {
-            return "Git LFS upload failed: " + e.getMessage();
+            return "Blob checksum verification failed: " + e.getMessage();
         }
-    }
-
-    private Map<String, String> lfsUploadHeaders(String uploadObject) {
-        Map<String, String> headers = new java.util.LinkedHashMap<>();
-        int headerKey = uploadObject.indexOf("\"header\"");
-        if (headerKey < 0) return headers;
-        int open = uploadObject.indexOf('{', headerKey);
-        if (open < 0) return headers;
-        int depth = 0;
-        int close = -1;
-        for (int i = open; i < uploadObject.length(); i++) {
-            char c = uploadObject.charAt(i);
-            if (c == '{') depth++;
-            else if (c == '}' && --depth == 0) { close = i; break; }
+        String treeBody = "{\\"base_tree\\":\\"" + treeSha + "\\",\\"tree\\":[{\\"path\\":\\"" +
+                Json.escape(path) + "\\",\\"mode\\":\\"100644\\",\\"type\\":\\"blob\\",\\"sha\\":\\"" + blobSha + "\\"}]}";
+        Http.Response tree = Http.post(base + "/git/trees", token, treeBody);
+        if (!tree.ok()) return "Git tree update failed (" + Http.statusText(tree) + ": " + describeError(tree) + ")";
+        String newTree = Http.stringField(tree.body, "sha");
+        if (newTree == null) return "GitHub returned no updated tree SHA.";
+        String commitBody = "{\\"message\\":\\"" + Json.escape(message) + "\\",\\"tree\\":\\"" +
+                newTree + "\\",\\"parents\\":[\\"" + parent + "\\"]}";
+        Http.Response commit = Http.post(base + "/git/commits", token, commitBody);
+        if (!commit.ok()) return "Git commit failed (" + Http.statusText(commit) + ": " + describeError(commit) + ")";
+        String commitSha = Http.stringField(commit.body, "sha");
+        if (commitSha == null) return "GitHub returned no commit SHA.";
+        Http.Response update = Http.request("PATCH", base + "/git/refs/heads/" + encode(branch),
+                token, "{\\"sha\\":\\"" + commitSha + "\\",\\"force\\":false}", "application/json");
+        if (!update.ok()) return "Git branch update failed (" + Http.statusText(update) + ": " + describeError(update) + ")";
+        Http.Response verify = Http.get(base + "/contents/" + path.replace(" ", "%20") +
+                "?ref=" + encode(branch), token);
+        if (!verify.ok() || !blobSha.equals(Http.stringField(verify.body, "sha"))) {
+            return "Branch verification failed: uploaded Git blob is not visible at the requested path.";
         }
-        if (close < 0) return headers;
-        String headerObject = uploadObject.substring(open, close + 1);
-        java.util.regex.Matcher matcher = java.util.regex.Pattern
-                .compile("\\\"([^\\\"]+)\\\"\\s*:\\s*\\\"((?:\\\\.|[^\\\"])*)\\\"")
-                .matcher(headerObject);
-        while (matcher.find()) {
-            String key = matcher.group(1);
-            String value = matcher.group(2).replace("\\\"", "\"").replace("\\\\", "\\");
-            headers.put(key, value);
-        }
-        return headers;
-    }
-
-    private String putSmallFile(Repo repo, String path, String content, String message) {
-        String existing = existingSha(repo, path);
-        String body = "{\"message\":\"" + Json.escape(message) + "\",\"content\":\"" +
-                Base64.encodeToString(content.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP) +
-                "\",\"branch\":\"" + Json.escape(repo.getCurrentBranch()) + "\"";
-        if (existing != null) body += ",\"sha\":\"" + existing + "\"";
-        body += "}";
-        Http.Response response = Http.put(contentsUrl(repo, path), token, body);
-        return response.ok() ? null : path + " commit failed (" + Http.statusText(response) + ": " + describeError(response) + ")";
-    }
-
-    private String verifyLfsPointer(Repo repo, String path, String oid, int size) {
-        Http.Response response = Http.get(contentsUrl(repo, path) + "?ref=" + encode(repo.getCurrentBranch()), token);
-        if (!response.ok()) return "Upload verification failed (" + Http.statusText(response) + ": " + describeError(response) + ")";
-        String encoded = Http.stringField(response.body, "content");
-        if (encoded == null) return "Upload verification failed: GitHub returned no pointer content.";
-        try {
-            String pointer = new String(Base64.decode(encoded.replaceAll("\\s", ""), Base64.DEFAULT), StandardCharsets.UTF_8);
-            if (!pointer.contains("oid sha256:" + oid) || !pointer.contains("size " + size)) {
-                return "Upload verification failed: GitHub stored a different LFS pointer.";
-            }
-            return null;
-        } catch (Exception e) {
-            return "Upload verification failed: could not decode the stored LFS pointer.";
-        }
+        long storedSize = Json.numericField(verify.body, "size");
+        if (storedSize != bytes.length) return "Size verification failed: expected " + bytes.length + " bytes, GitHub reports " + storedSize + ".";
+        return null;
     }
 
     private String toHex(byte[] bytes) {
