@@ -26,7 +26,7 @@ public final class ClaudeCodeScreen extends Screen {
         LinearLayout column = main.column();
         SharedPreferences prefs = main.getSharedPreferences("claude_code_draft", 0);
         column.addView(Ui.heading(main, "Claude Code — GitHub Actions"));
-        column.addView(Ui.body(main, "Run Claude without Codespaces browser login. GitHub Actions needs its own ANTHROPIC_API_KEY secret; a Codespaces secret is not shared automatically."));
+        column.addView(Ui.body(main, "Run Claude without Codespaces browser login. The Anthropic API key stays centrally in Touch Developer Actions. Select an approved app repository and its working branch."));
         EditText repo = new EditText(main);
         repo.setSingleLine(true);
         repo.setHint("owner/repository");
@@ -57,8 +57,8 @@ public final class ClaudeCodeScreen extends Screen {
                 main.toast("Enter a repository, non-default branch, and assignment.");
                 return;
             }
-            if (!target.equals("mrmundysr-sudo/Touch-Developer-")) {
-                main.toast("Cross-repository Claude execution is not enabled yet.");
+            if (!target.equals("mrmundysr-sudo/Touch-Developer-") && !target.equals("mrmundysr-sudo/TouchV")) {
+                main.toast("Choose an approved repository: Touch Developer or TouchV.");
                 return;
             }
             if (task.length() > 10000) { main.toast("Assignment must be under 10,000 characters."); return; }
@@ -70,7 +70,7 @@ public final class ClaudeCodeScreen extends Screen {
                 return;
             }
             new AlertDialog.Builder(main).setTitle("Run Claude Code?")
-                .setMessage("This starts a GitHub Actions job that may consume paid Anthropic API credits. The workflow is limited to 30 minutes. Continue?")
+                .setMessage("This starts a GitHub Actions job that may consume paid Anthropic API credits. The workflow allows up to 6 hours and caps Claude API usage at $20 per assignment. Continue?")
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Run", (d, w) -> {
                     launch.setEnabled(false);
@@ -95,7 +95,7 @@ public final class ClaudeCodeScreen extends Screen {
         Button runs = Ui.button(main, "View Claude jobs and logs on GitHub");
         runs.setOnClickListener(v -> open("https://github.com/mrmundysr-sudo/Touch-Developer-/actions/workflows/claude-assignment.yml"));
         column.addView(runs);
-        column.addView(Ui.body(main, "Current scope: Touch Developer working branches only. The first workflow runs in planning mode and uploads a report; it does not automatically edit or push code. GitHub job status and reports are available through the Actions link."));
+        column.addView(Ui.body(main, "Claude can edit code in approved repositories. TouchV changes are returned as a patch artifact until cross-repository GitHub write permission is configured; Anthropic needs no additional API key. Check Actions for results."));
         return column;
     }
     private void open(String url) { main.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))); }
