@@ -22,7 +22,7 @@ concurrency:
 jobs:
   claude:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 360
     steps:
       - name: Validate request
         env:
@@ -51,15 +51,30 @@ jobs:
           fi
       - name: Install Claude Code
         run: npm install -g @anthropic-ai/claude-code
-      - name: Run bounded assignment
+      - name: Run development assignment
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ASSIGNMENT: ${{ inputs.assignment }}
         shell: bash
         run: |
           set -euo pipefail
-          claude -p "Work in this checkout only. Do not access secrets, change GitHub settings, or push. Preserve existing functionality. Task: $ASSIGNMENT" --permission-mode plan --max-turns 8 --output-format text > claude-report.txt
+          claude -p "Implement the task in this checkout. Preserve existing approved assets and behavior. Do not access secrets, change GitHub settings, or push; the workflow handles commits. Task: $ASSIGNMENT" --permission-mode acceptEdits --max-turns 80 --max-budget-usd 20 --output-format text > claude-report.txt
           cat claude-report.txt
+      - name: Commit completed code changes
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "touch-claude-bot"
+          git config user.email "touch-claude-bot@users.noreply.github.com"
+          git add -A
+          git reset -q -- claude-report.txt || true
+          if ! git diff --cached --quiet; then
+            git commit -m "Claude Code: implement assigned changes"
+            git push origin "HEAD:${{ inputs.target_branch }}"
+          else
+            echo "No code changes to commit."
+          fi
       - name: Upload report
         if: always()
         uses: actions/upload-artifact@v4
