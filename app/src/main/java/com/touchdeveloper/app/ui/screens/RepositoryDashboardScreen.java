@@ -67,6 +67,10 @@ public class RepositoryDashboardScreen extends Screen {
         aiDeveloper.setOnClickListener(v -> main.show(new ClaudeCodeScreen(main)));
         column.addView(aiDeveloper);
 
+        Button deepSeek = Ui.button(main, "AI Developer — DeepSeek / OpenHands");
+        deepSeek.setOnClickListener(v -> main.show(new DeepSeekOpenHandsScreen(main)));
+        column.addView(deepSeek);
+
         renderRepos(column);
         return column;
     }
