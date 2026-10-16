@@ -88,6 +88,7 @@ jobs:
           git config user.email "touch-claude-bot@users.noreply.github.com"
           git add -A
           git reset -q -- claude-report.txt || true
+          git diff --binary --cached > ../claude-changes.patch
           if ! git diff --cached --quiet; then
             git commit -m "Claude Code: implement assigned changes"
             if [[ -n "${PUSH_TOKEN:-}" ]]; then
@@ -103,7 +104,6 @@ jobs:
         shell: bash
         run: |
           if [[ -d target/.git ]]; then
-            git -C target diff HEAD~1 HEAD > claude-changes.patch 2>/dev/null || git -C target diff HEAD > claude-changes.patch || true
             git -C target status --short > claude-status.txt || true
           fi
       - name: Upload code patch
