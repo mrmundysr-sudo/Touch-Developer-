@@ -56,9 +56,8 @@ public class OpenHandsApiService implements OpenHandsService {
 
     @Override
     public Result<String> startBuild(BuildRequest request) {
-        // Kept for compatibility with the existing workspace UI. This now starts
-        // an OpenHands coding conversation, NOT an APK build.
-        return startConversation(request);
+        // The legacy build UI must never silently start a coding conversation.
+        return Result.failure("OpenHands APK build endpoint is not configured. Use GitHub Actions for APK builds; use the DeepSeek workspace for coding sessions.");
     }
 
     private Result<String> startConversation(BuildRequest request) {
