@@ -40,24 +40,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ${{ inputs.target_repo }}
+          token: ${{ secrets.TOUCH_TARGET_REPOS_TOKEN || github.token }}
           ref: ${{ inputs.target_branch }}
           path: target
           persist-credentials: false
-      - name: Configure target repository write credentials
-        env:
-          TARGET_REPO: ${{ inputs.target_repo }}
-          TARGET_TOKEN: ${{ secrets.TOUCH_TARGET_REPOS_TOKEN }}
-          LOCAL_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ "$TARGET_REPO" == "$GITHUB_REPOSITORY" ]]; then
-            echo "PUSH_TOKEN=$LOCAL_TOKEN" >> "$GITHUB_ENV"
-          elif [[ -n "$TARGET_TOKEN" ]]; then
-            echo "PUSH_TOKEN=$TARGET_TOKEN" >> "$GITHUB_ENV"
-          else
-            echo "Cross-repository write credential is missing. Claude will still produce a patch artifact, but cannot commit to the target repository."
-          fi
       - name: Require Anthropic Actions secret
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -80,6 +66,8 @@ jobs:
           cat claude-report.txt
       - name: Commit completed code changes
         if: success()
+        env:
+          PUSH_TOKEN: ${{ secrets.TOUCH_TARGET_REPOS_TOKEN || github.token }}
         shell: bash
         run: |
           set -euo pipefail
@@ -91,11 +79,7 @@ jobs:
           git diff --binary --cached > ../claude-changes.patch
           if ! git diff --cached --quiet; then
             git commit -m "Claude Code: implement assigned changes"
-            if [[ -n "${PUSH_TOKEN:-}" ]]; then
-              git -c http.extraheader="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$PUSH_TOKEN" | base64 -w0)" push origin "HEAD:${{ inputs.target_branch }}"
-            else
-              echo "::warning::Code changes saved as a patch artifact; target repository write token is not configured."
-            fi
+            git -c http.extraheader="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$PUSH_TOKEN" | base64 -w0)" push origin "HEAD:${{ inputs.target_branch }}"
           else
             echo "No code changes to commit."
           fi
