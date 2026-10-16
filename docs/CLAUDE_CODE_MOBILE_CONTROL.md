@@ -38,3 +38,10 @@ Phone-first Android control center to launch and monitor Claude Code jobs in a G
 - Can view Claude Code output and approve required actions.
 - Can trigger/track GitHub Actions, and download only a verified APK.
 - Existing GitHub file upload, branch management, and APK functions remain operational.
+
+## Codespaces API-key launch (2026-10-16)
+- API-key launcher committed at `scripts/start-claude-api.sh`. Run it inside the existing Codespace with `bash scripts/start-claude-api.sh` after the Codespaces secret is available.
+- The key must be named `ANTHROPIC_API_KEY` and granted to `Touch-Developer-`; never commit the key or include it in logs.
+- A newly created Codespaces secret may require stopping and restarting the existing Codespace before it is injected. No browser OAuth or localhost callback is required when API-key authentication is active.
+- GitHub Actions **cannot** read Codespaces secrets. Any future Actions-hosted Claude execution needs a separately configured Actions secret or a secure backend; do not silently assume the Codespaces secret is available there.
+- The launcher is committed but has not been executed or validated in the remote Codespace. No APK or mobile controller backend is claimed complete.
