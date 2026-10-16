@@ -58,7 +58,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          claude -p "Implement the task in this checkout. Preserve existing approved assets and behavior. Do not access secrets, change GitHub settings, or push; the workflow handles commits. Task: $ASSIGNMENT" --permission-mode acceptEdits --max-turns 80 --max-budget-usd 20 --output-format text > claude-report.txt
+          claude -p "Implement the task in this checkout. Preserve existing approved assets and behavior. Do not access secrets, change GitHub settings, or push; the workflow handles commits. Task: $ASSIGNMENT" --permission-mode acceptEdits --max-turns 80 --max-budget-usd 5 --output-format text > claude-report.txt
           cat claude-report.txt
       - name: Commit completed code changes
         if: success()
