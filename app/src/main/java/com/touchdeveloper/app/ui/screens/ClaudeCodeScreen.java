@@ -2,99 +2,101 @@ package com.touchdeveloper.app.ui.screens;
 
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.text.InputType;
-import android.content.ClipData;
-import android.content.ClipboardManager;
-import android.content.Context;
 import android.net.Uri;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.TextView;
+import android.app.AlertDialog;
 import com.touchdeveloper.app.MainActivity;
+import com.touchdeveloper.app.ServiceLocator;
 import com.touchdeveloper.app.ui.Screen;
 import com.touchdeveloper.app.ui.Ui;
+import com.touchdeveloper.app.util.Http;
+import com.touchdeveloper.app.util.Json;
 
-/** First-stage phone UI. Does not launch paid jobs without a secure backend. */
+/** Phone-first GitHub Actions Claude job launcher. No Anthropic key is stored in the APK. */
 public final class ClaudeCodeScreen extends Screen {
+    private static final String WORKFLOW = "claude-assignment.yml";
     public ClaudeCodeScreen(MainActivity main) { super(main); }
     @Override public String title() { return "AI Developer"; }
+
     @Override public View create() {
         LinearLayout column = main.column();
-        column.addView(Ui.heading(main, "Claude Code"));
-        column.addView(Ui.body(main, "SETUP REQUIRED — no Claude session is running. No API credits will be spent from this screen."));
-        String selected = main.selectedRepo() == null ? "Choose a repository on the dashboard first"
-                : main.selectedRepo().getFullName() + " / " + main.selectedRepo().getCurrentBranch();
-        column.addView(Ui.sectionLabel(main, "Selected project"));
-        column.addView(Ui.body(main, selected));
-        column.addView(Ui.sectionLabel(main, "Development assignment"));
-        EditText prompt = new EditText(main);
-        prompt.setHint("Describe what Claude should improve...");
         SharedPreferences prefs = main.getSharedPreferences("claude_code_draft", 0);
-        prompt.setText(prefs.getString("assignment", ""));
-        prompt.setMinLines(5);
-        prompt.setGravity(android.view.Gravity.TOP);
-        column.addView(prompt);
-        Button save = Ui.button(main, "Save assignment draft");
-        save.setOnClickListener(v -> {
-            prefs.edit().putString("assignment", prompt.getText().toString()).apply();
-            main.toast("Assignment saved on this phone. No job started.");
-        });
-        column.addView(save);
-        column.addView(Ui.sectionLabel(main, "Maximum planned spend (USD)"));
-        EditText budget = new EditText(main);
-        budget.setSingleLine(true);
-        budget.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
-        budget.setHint("Example: 5.00");
-        budget.setText(prefs.getString("budget", "5.00"));
-        column.addView(budget);
-        Button saveBudget = Ui.button(main, "Save planned budget");
-        saveBudget.setOnClickListener(v -> {
-            String amount = budget.getText().toString().trim();
-            try {
-                double value = Double.parseDouble(amount);
-                if (!Double.isFinite(value) || value <= 0 || value > 10000) throw new NumberFormatException();
-                prefs.edit().putString("budget", amount).apply();
-                main.toast("Planned budget saved. Not yet enforced by a backend.");
-            } catch (NumberFormatException ex) {
-                main.toast("Enter a valid amount greater than $0 and no more than $10,000.");
+        column.addView(Ui.heading(main, "Claude Code — GitHub Actions"));
+        column.addView(Ui.body(main, "Run Claude without Codespaces browser login. GitHub Actions needs its own ANTHROPIC_API_KEY secret; a Codespaces secret is not shared automatically."));
+        EditText repo = new EditText(main);
+        repo.setSingleLine(true);
+        repo.setHint("owner/repository");
+        repo.setText(prefs.getString("repo", "mrmundysr-sudo/Touch-Developer-"));
+        column.addView(repo);
+        EditText branch = new EditText(main);
+        branch.setSingleLine(true);
+        branch.setHint("Working branch (not main)");
+        branch.setText(prefs.getString("branch", "claude-code-mobile-control"));
+        column.addView(branch);
+        EditText assignment = new EditText(main);
+        assignment.setHint("What should Claude work on?");
+        assignment.setMinLines(5);
+        assignment.setGravity(android.view.Gravity.TOP);
+        assignment.setText(prefs.getString("assignment", ""));
+        column.addView(assignment);
+        Button launch = Ui.button(main, "Submit Claude assignment");
+        column.addView(launch);
+        TextView status = Ui.body(main, "Status: no job submitted. No API usage started.");
+        column.addView(status);
+        launch.setOnClickListener(v -> {
+            String target = repo.getText().toString().trim();
+            String working = branch.getText().toString().trim();
+            String task = assignment.getText().toString().trim();
+            if (!target.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
+                    || working.isEmpty() || working.equals("main") || working.equals("master")
+                    || task.isEmpty()) {
+                main.toast("Enter a repository, non-default branch, and assignment.");
+                return;
             }
+            if (!target.equals("mrmundysr-sudo/Touch-Developer-")) {
+                main.toast("Cross-repository Claude execution is not enabled yet.");
+                return;
+            }
+            if (task.length() > 10000) { main.toast("Assignment must be under 10,000 characters."); return; }
+            prefs.edit().putString("repo", target).putString("branch", working)
+                    .putString("assignment", task).apply();
+            String token = main.services().credentials().retrieve(ServiceLocator.KEY_GITHUB_TOKEN);
+            if (token == null || token.trim().isEmpty()) {
+                main.toast("Connect GitHub in Setup before submitting a job.");
+                return;
+            }
+            new AlertDialog.Builder(main).setTitle("Run Claude Code?")
+                .setMessage("This starts a GitHub Actions job that may consume paid Anthropic API credits. The workflow is limited to 30 minutes. Continue?")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Run", (d, w) -> {
+                    launch.setEnabled(false);
+                    status.setText("Submitting to GitHub...");
+                    new Thread(() -> {
+                        String url = "https://api.github.com/repos/mrmundysr-sudo/Touch-Developer-/actions/workflows/" + WORKFLOW + "/dispatches";
+                        String payload = "{\"ref\":\"claude-code-mobile-control\",\"inputs\":{\"target_repo\":\""
+                                + Json.escape(target) + "\",\"target_branch\":\"" + Json.escape(working)
+                                + "\",\"assignment\":\"" + Json.escape(task) + "\"}}";
+                        Http.Response response = Http.post(url, token, payload);
+                        main.runOnUiThread(() -> {
+                            launch.setEnabled(true);
+                            if (response.code == 204) {
+                                status.setText("GitHub accepted the request. Open Actions to see whether Claude ran successfully.");
+                            } else {
+                                status.setText("GitHub did not accept the job (HTTP " + response.code + "). Check workflow permissions and Actions configuration.");
+                            }
+                        });
+                    }).start();
+                }).show();
         });
-        column.addView(saveBudget);
-        Button copy = Ui.button(main, "Copy assignment for Claude Code");
-        copy.setOnClickListener(v -> {
-            String assignment = prompt.getText().toString().trim();
-            if (assignment.isEmpty()) { main.toast("Enter an assignment first."); return; }
-            String repoName = main.selectedRepo() == null ? "" : main.selectedRepo().getFullName();
-            String branchName = main.selectedRepo() == null ? "" : main.selectedRepo().getCurrentBranch();
-            String instruction = "Repository: " + repoName + "\nBranch: " + branchName
-                    + "\nUse GitHub as the source of truth. Preserve existing approved artwork and behavior. "
-                    + "Inspect the project before editing, work only on the selected branch, "
-                    + "run tests and build through GitHub Actions, and report verified artifacts only.\n\n"
-                    + assignment;
-            ClipboardManager clipboard = (ClipboardManager) main.getSystemService(Context.CLIPBOARD_SERVICE);
-            if (clipboard == null) { main.toast("Clipboard unavailable."); return; }
-            clipboard.setPrimaryClip(ClipData.newPlainText("Claude Code assignment", instruction));
-            main.toast("Assignment copied. Paste it into Claude Code in Codespaces.");
-        });
-        column.addView(copy);
-        Button start = Ui.button(main, "Start Claude Code — connection required");
-        start.setEnabled(false);
-        column.addView(start);
-        column.addView(Ui.sectionLabel(main, "Session"));
-        column.addView(Ui.body(main, "Status: Not connected\nProgress: No active job\nAPK: No verified artifact"));
-        Button billing = Ui.button(main, "Add Anthropic API credits (official website)");
-        billing.setOnClickListener(v -> open("https://console.anthropic.com/settings/billing"));
-        column.addView(billing);
-        Button codespaces = Ui.button(main, "Open GitHub Codespaces");
-        codespaces.setOnClickListener(v -> open("https://github.com/codespaces"));
-        column.addView(codespaces);
-        column.addView(Ui.body(main, "Manual mode: copy the assignment, open Codespaces, and paste it into Claude Code. This does not start a job automatically."));
-        column.addView(Ui.body(main, "Drafts and planned budgets are saved locally. A planned budget is NOT a billing limit until backend enforcement is implemented."));
-        column.addView(Ui.body(main, "Payments take place on Anthropic's website. API usage, credit balance, job execution and stop controls require a secure backend before they can be enabled."));
+        Button runs = Ui.button(main, "View Claude jobs and logs on GitHub");
+        runs.setOnClickListener(v -> open("https://github.com/mrmundysr-sudo/Touch-Developer-/actions/workflows/claude-assignment.yml"));
+        column.addView(runs);
+        column.addView(Ui.body(main, "Current scope: Touch Developer working branches only. The first workflow runs in planning mode and uploads a report; it does not automatically edit or push code. GitHub job status and reports are available through the Actions link."));
         return column;
     }
-    private void open(String url) {
-        main.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
-    }
+    private void open(String url) { main.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))); }
 }
