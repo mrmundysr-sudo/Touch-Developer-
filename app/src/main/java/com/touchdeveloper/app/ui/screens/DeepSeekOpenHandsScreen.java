@@ -35,7 +35,7 @@ public final class DeepSeekOpenHandsScreen extends Screen {
         EditText branch = new EditText(main);
         branch.setSingleLine(true);
         branch.setHint("Existing work branch (never main)");
-        branch.setText(prefs.getString("branch", "claude-premium-playstore-pass"));
+        branch.setText(prefs.getString("branch", "deepseek-premium-pass"));
         column.addView(branch);
         EditText task = new EditText(main);
         task.setHint("Coding assignment / premium pass");
