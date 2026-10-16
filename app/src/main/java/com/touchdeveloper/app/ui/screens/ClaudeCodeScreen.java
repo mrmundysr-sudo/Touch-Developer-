@@ -77,7 +77,7 @@ public final class ClaudeCodeScreen extends Screen {
                     status.setText("Submitting to GitHub...");
                     new Thread(() -> {
                         String url = "https://api.github.com/repos/mrmundysr-sudo/Touch-Developer-/actions/workflows/" + WORKFLOW + "/dispatches";
-                        String payload = "{\"ref\":\"claude-code-mobile-control\",\"inputs\":{\"target_repo\":\""
+                        String payload = "{\"ref\":\"main\",\"inputs\":{\"target_repo\":\""
                                 + Json.escape(target) + "\",\"target_branch\":\"" + Json.escape(working)
                                 + "\",\"assignment\":\"" + Json.escape(task) + "\"}}";
                         Http.Response response = Http.post(url, token, payload);
