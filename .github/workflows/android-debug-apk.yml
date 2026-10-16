@@ -3,7 +3,7 @@ name: Build Touch Android APK
 on:
   workflow_dispatch:
   push:
-    branches: [main, fix/setup-restore-v6]
+    branches: [main, fix/setup-restore-v6, claude-code-mobile-control]
   pull_request:
     branches: [main]
 

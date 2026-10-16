@@ -63,6 +63,10 @@ public class RepositoryDashboardScreen extends Screen {
         create.setOnClickListener(v -> showCreateRepositoryDialog());
         column.addView(create);
 
+        Button aiDeveloper = Ui.button(main, "AI Developer — Claude Code");
+        aiDeveloper.setOnClickListener(v -> main.show(new ClaudeCodeScreen(main)));
+        column.addView(aiDeveloper);
+
         renderRepos(column);
         return column;
     }
