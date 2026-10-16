@@ -67,10 +67,10 @@ public final class ClaudeCodeScreen extends Screen {
             if (assignment.isEmpty()) { main.toast("Enter an assignment first."); return; }
             String repoName = main.selectedRepo() == null ? "" : main.selectedRepo().getFullName();
             String branchName = main.selectedRepo() == null ? "" : main.selectedRepo().getCurrentBranch();
-            String instruction = "Repository: " + repoName + "\\nBranch: " + branchName
-                    + "\\nUse GitHub as the source of truth. Preserve existing approved artwork and behavior. "
+            String instruction = "Repository: " + repoName + "\nBranch: " + branchName
+                    + "\nUse GitHub as the source of truth. Preserve existing approved artwork and behavior. "
                     + "Inspect the project before editing, work only on the selected branch, "
-                    + "run tests and build through GitHub Actions, and report verified artifacts only.\\n\\n"
+                    + "run tests and build through GitHub Actions, and report verified artifacts only.\n\n"
                     + assignment;
             ClipboardManager clipboard = (ClipboardManager) main.getSystemService(Context.CLIPBOARD_SERVICE);
             if (clipboard == null) { main.toast("Clipboard unavailable."); return; }
