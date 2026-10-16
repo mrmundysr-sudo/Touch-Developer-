@@ -3,7 +3,9 @@ package com.touchdeveloper.app.ui.screens;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.text.InputType;
-import android.widget.Toast;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.net.Uri;
 import android.view.View;
 import android.widget.Button;
@@ -59,6 +61,23 @@ public final class ClaudeCodeScreen extends Screen {
             }
         });
         column.addView(saveBudget);
+        Button copy = Ui.button(main, "Copy assignment for Claude Code");
+        copy.setOnClickListener(v -> {
+            String assignment = prompt.getText().toString().trim();
+            if (assignment.isEmpty()) { main.toast("Enter an assignment first."); return; }
+            String repoName = main.selectedRepo() == null ? "" : main.selectedRepo().getFullName();
+            String branchName = main.selectedRepo() == null ? "" : main.selectedRepo().getCurrentBranch();
+            String instruction = "Repository: " + repoName + "\\nBranch: " + branchName
+                    + "\\nUse GitHub as the source of truth. Preserve existing approved artwork and behavior. "
+                    + "Inspect the project before editing, work only on the selected branch, "
+                    + "run tests and build through GitHub Actions, and report verified artifacts only.\\n\\n"
+                    + assignment;
+            ClipboardManager clipboard = (ClipboardManager) main.getSystemService(Context.CLIPBOARD_SERVICE);
+            if (clipboard == null) { main.toast("Clipboard unavailable."); return; }
+            clipboard.setPrimaryClip(ClipData.newPlainText("Claude Code assignment", instruction));
+            main.toast("Assignment copied. Paste it into Claude Code in Codespaces.");
+        });
+        column.addView(copy);
         Button start = Ui.button(main, "Start Claude Code — connection required");
         start.setEnabled(false);
         column.addView(start);
@@ -70,6 +89,7 @@ public final class ClaudeCodeScreen extends Screen {
         Button codespaces = Ui.button(main, "Open GitHub Codespaces");
         codespaces.setOnClickListener(v -> open("https://github.com/codespaces"));
         column.addView(codespaces);
+        column.addView(Ui.body(main, "Manual mode: copy the assignment, open Codespaces, and paste it into Claude Code. This does not start a job automatically."));
         column.addView(Ui.body(main, "Drafts and planned budgets are saved locally. A planned budget is NOT a billing limit until backend enforcement is implemented."));
         column.addView(Ui.body(main, "Payments take place on Anthropic's website. API usage, credit balance, job execution and stop controls require a secure backend before they can be enabled."));
         return column;
