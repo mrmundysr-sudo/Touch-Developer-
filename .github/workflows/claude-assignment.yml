@@ -54,6 +54,20 @@ jobs:
           fi
       - name: Install Claude Code
         run: npm install -g @anthropic-ai/claude-code
+      - name: Define source-only premium pass
+        shell: bash
+        run: |
+          cat > "${{ runner.temp }}/premium-pass.txt" <<'INSTRUCTIONS'
+          SOURCE-ONLY PREMIUM PASS — COMPLETE GAMEPLAY, UI/UX & POLISH
+
+          Improve the complete existing Android game source with the judgment of an experienced game developer and designer. You have broad authority to discover and fix additional defects and make tasteful improvements beyond the explicit assignment. Do not stop after the listed bugs; deliver a coherent, polished source project.
+
+          Focus on gameplay correctness and natural turn flow for 1, 2, and 3 opponents; deliberate pacing; AI visibility; card dealing, drawing, playing, discarding, fanning, slight rotation, movement, and satisfying easing; responsive touch feedback; subtle depth, shadows and highlights; coordinated appropriate audio and optional haptics; typography, readable font hierarchy, wording, alignment, spacing, clipping, contrast and consistent screen-to-screen styling. Give every game object convincing physicality and game feel. Preserve approved art, rules, assets, existing good behavior and project identity.
+
+          You MAY run lightweight static checks, unit tests and logic-only full-game simulations. Do NOT build an APK, install or run Android emulators, set up Android SDKs, perform device/UI screenshot testing, sign releases, or handle Play Store submission. Do not claim to have heard audio or seen gameplay. Focus budget on actual code improvements. Avoid unnecessary dependency downloads, broad refactors without benefit, repeated file reading, and lengthy narration.
+
+          Work directly on the checked-out source files. Maintain a concise PREMIUM_PASS_PROGRESS.md with completed fixes, test evidence, remaining work and physical-device verification notes so interrupted work can resume. The final deliverable is the complete corrected source tree, which our workflow commits and can package as ZIP later. Do not push or alter GitHub settings. Do not access credentials or secrets. Report any unresolved issues honestly.
+          INSTRUCTIONS
       - name: Run development assignment
         id: claude_run
         env:
@@ -63,8 +77,21 @@ jobs:
         run: |
           set -euo pipefail
           cd target
-          claude -p "Implement the task in this checkout. Preserve existing approved assets and behavior. Do not access secrets, change GitHub settings, or push; the workflow handles commits. Task: $ASSIGNMENT" --permission-mode acceptEdits --max-turns 80 --max-budget-usd 20 --output-format text > claude-report.txt
-          cat claude-report.txt
+          {
+            cat "${{ runner.temp }}/premium-pass.txt"
+            printf '\nUSER ASSIGNMENT:\n%s\n' "$ASSIGNMENT"
+          } > ../claude-task.txt
+          # Sonnet explicitly selected; JSON result records reported cost and token usage.
+          claude -p "$(cat ../claude-task.txt)" --model sonnet --permission-mode acceptEdits --max-turns 80 --max-budget-usd 9 --output-format json > ../claude-result.json
+          python3 - <<'PY'
+          import json
+          with open('../claude-result.json', encoding='utf-8') as f:
+              data = json.load(f)
+          print('Reported API cost USD:', data.get('total_cost_usd', 'unavailable'))
+          print('Usage:', json.dumps(data.get('usage', {})))
+          print('Session:', data.get('session_id', 'unavailable'))
+          print('Result:', str(data.get('result', ''))[-6000:])
+          PY
       - name: Preserve code changes even when Claude fails or credits run out
         if: ${{ always() && steps.claude_run.outcome != 'skipped' }}
         env:
@@ -83,7 +110,7 @@ jobs:
           git config user.email "touch-claude-bot@users.noreply.github.com"
           # Keep the AI transcript outside the source commit.
           git add -A
-          git reset -q -- claude-report.txt || true
+          git reset -q -- claude-report.txt claude-result.json claude-task.txt || true
           git diff --binary --cached > ../claude-changes.patch
           git status --short > ../claude-status.txt
           if git diff --cached --quiet; then
@@ -116,11 +143,14 @@ jobs:
             claude-changes.patch
             claude-status.txt
             claude-final-status.txt
+            claude-result.json
           if-no-files-found: ignore
       - name: Upload report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: claude-assignment-report
-          path: target/claude-report.txt
+          path: |
+            target/claude-report.txt
+            claude-result.json
           if-no-files-found: ignore
