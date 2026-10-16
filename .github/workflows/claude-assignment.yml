@@ -55,6 +55,7 @@ jobs:
       - name: Install Claude Code
         run: npm install -g @anthropic-ai/claude-code
       - name: Run development assignment
+        id: claude_run
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ASSIGNMENT: ${{ inputs.assignment }}
@@ -64,31 +65,47 @@ jobs:
           cd target
           claude -p "Implement the task in this checkout. Preserve existing approved assets and behavior. Do not access secrets, change GitHub settings, or push; the workflow handles commits. Task: $ASSIGNMENT" --permission-mode acceptEdits --max-turns 80 --max-budget-usd 20 --output-format text > claude-report.txt
           cat claude-report.txt
-      - name: Commit completed code changes
-        if: success()
+      - name: Preserve code changes even when Claude fails or credits run out
+        if: ${{ always() && steps.claude_run.outcome != 'skipped' }}
         env:
           PUSH_TOKEN: ${{ secrets.TOUCH_TARGET_REPOS_TOKEN || github.token }}
+          TARGET_BRANCH: ${{ inputs.target_branch }}
+          CLAUDE_RESULT: ${{ steps.claude_run.outcome }}
         shell: bash
         run: |
           set -euo pipefail
+          if [[ ! -d target/.git ]]; then
+            echo "::warning::No checkout available to recover"
+            exit 0
+          fi
           cd target
           git config user.name "touch-claude-bot"
           git config user.email "touch-claude-bot@users.noreply.github.com"
+          # Keep the AI transcript outside the source commit.
           git add -A
           git reset -q -- claude-report.txt || true
           git diff --binary --cached > ../claude-changes.patch
-          if ! git diff --cached --quiet; then
-            git commit -m "Claude Code: implement assigned changes"
-            git -c http.extraheader="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$PUSH_TOKEN" | base64 -w0)" push origin "HEAD:${{ inputs.target_branch }}"
-          else
-            echo "No code changes to commit."
+          git status --short > ../claude-status.txt
+          if git diff --cached --quiet; then
+            echo "No code changes to preserve."
+            exit 0
           fi
-      - name: Export changes as portable patch
+          if [[ "$CLAUDE_RESULT" == "success" ]]; then
+            MESSAGE="Claude Code: completed assignment"
+          else
+            MESSAGE="WIP recovery: Claude assignment interrupted (run ${{ github.run_id }})"
+            echo "::warning::Saving incomplete Claude work; not verified or ready to release."
+          fi
+          git commit -m "$MESSAGE"
+          # Push to the exact approved working branch, never main/master.
+          git -c http.extraheader="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$PUSH_TOKEN" | base64 -w0)" push origin "HEAD:$TARGET_BRANCH"
+          echo "Saved code to $TARGET_BRANCH; outcome: $CLAUDE_RESULT"
+      - name: Export recovery status
         if: always()
         shell: bash
         run: |
           if [[ -d target/.git ]]; then
-            git -C target status --short > claude-status.txt || true
+            git -C target status --short > claude-final-status.txt || true
           fi
       - name: Upload code patch
         if: always()
@@ -98,6 +115,7 @@ jobs:
           path: |
             claude-changes.patch
             claude-status.txt
+            claude-final-status.txt
           if-no-files-found: ignore
       - name: Upload report
         if: always()
