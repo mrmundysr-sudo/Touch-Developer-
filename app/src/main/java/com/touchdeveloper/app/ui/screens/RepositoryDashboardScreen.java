@@ -55,6 +55,10 @@ public class RepositoryDashboardScreen extends Screen {
             column.addView(Ui.error(main, main.lastError()));
         }
 
+        Button ai = Ui.button(main, "AI Development — Claude / OpenHands / DeepSeek");
+        ai.setOnClickListener(v -> main.show(new AiWorkspaceScreen(main)));
+        column.addView(ai);
+
         Button refresh = Ui.button(main, "Refresh repositories");
         refresh.setOnClickListener(v -> loadRepositories(true));
         column.addView(refresh);
