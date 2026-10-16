@@ -1,6 +1,9 @@
 package com.touchdeveloper.app.ui.screens;
 
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.text.InputType;
+import android.widget.Toast;
 import android.net.Uri;
 import android.view.View;
 import android.widget.Button;
@@ -25,9 +28,37 @@ public final class ClaudeCodeScreen extends Screen {
         column.addView(Ui.sectionLabel(main, "Development assignment"));
         EditText prompt = new EditText(main);
         prompt.setHint("Describe what Claude should improve...");
+        SharedPreferences prefs = main.getSharedPreferences("claude_code_draft", 0);
+        prompt.setText(prefs.getString("assignment", ""));
         prompt.setMinLines(5);
         prompt.setGravity(android.view.Gravity.TOP);
         column.addView(prompt);
+        Button save = Ui.button(main, "Save assignment draft");
+        save.setOnClickListener(v -> {
+            prefs.edit().putString("assignment", prompt.getText().toString()).apply();
+            main.toast("Assignment saved on this phone. No job started.");
+        });
+        column.addView(save);
+        column.addView(Ui.sectionLabel(main, "Maximum planned spend (USD)"));
+        EditText budget = new EditText(main);
+        budget.setSingleLine(true);
+        budget.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        budget.setHint("Example: 5.00");
+        budget.setText(prefs.getString("budget", "5.00"));
+        column.addView(budget);
+        Button saveBudget = Ui.button(main, "Save planned budget");
+        saveBudget.setOnClickListener(v -> {
+            String amount = budget.getText().toString().trim();
+            try {
+                double value = Double.parseDouble(amount);
+                if (!Double.isFinite(value) || value <= 0 || value > 10000) throw new NumberFormatException();
+                prefs.edit().putString("budget", amount).apply();
+                main.toast("Planned budget saved. Not yet enforced by a backend.");
+            } catch (NumberFormatException ex) {
+                main.toast("Enter a valid amount greater than $0 and no more than $10,000.");
+            }
+        });
+        column.addView(saveBudget);
         Button start = Ui.button(main, "Start Claude Code — connection required");
         start.setEnabled(false);
         column.addView(start);
@@ -39,6 +70,7 @@ public final class ClaudeCodeScreen extends Screen {
         Button codespaces = Ui.button(main, "Open GitHub Codespaces");
         codespaces.setOnClickListener(v -> open("https://github.com/codespaces"));
         column.addView(codespaces);
+        column.addView(Ui.body(main, "Drafts and planned budgets are saved locally. A planned budget is NOT a billing limit until backend enforcement is implemented."));
         column.addView(Ui.body(main, "Payments take place on Anthropic's website. API usage, credit balance, job execution and stop controls require a secure backend before they can be enabled."));
         return column;
     }
