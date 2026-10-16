@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       target_repo:
-        description: 'Repository owner/name (must be accessible to workflow token)'
+        description: 'Approved repository owner/name'
         required: true
         type: string
       target_branch:
@@ -33,14 +33,31 @@ jobs:
           set -euo pipefail
           [[ "$TARGET_REPO" =~ ^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$ ]] || exit 1
           [[ -n "$TARGET_BRANCH" && "$TARGET_BRANCH" != "main" && "$TARGET_BRANCH" != "master" ]] || { echo "Use a non-default working branch"; exit 1; }
-          if [[ "$TARGET_REPO" != "$GITHUB_REPOSITORY" ]]; then
-            echo "Cross-repository execution requires separately scoped credentials; blocked for safety."
-            exit 1
-          fi
+          case "$TARGET_REPO" in
+            "mrmundysr-sudo/Touch-Developer-"|"mrmundysr-sudo/TouchV") ;;
+            *) echo "::error::Repository not approved for Claude assignments"; exit 1 ;;
+          esac
       - uses: actions/checkout@v4
         with:
+          repository: ${{ inputs.target_repo }}
           ref: ${{ inputs.target_branch }}
-          persist-credentials: true
+          path: target
+          persist-credentials: false
+      - name: Configure target repository write credentials
+        env:
+          TARGET_REPO: ${{ inputs.target_repo }}
+          TARGET_TOKEN: ${{ secrets.TOUCH_TARGET_REPOS_TOKEN }}
+          LOCAL_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$TARGET_REPO" == "$GITHUB_REPOSITORY" ]]; then
+            echo "PUSH_TOKEN=$LOCAL_TOKEN" >> "$GITHUB_ENV"
+          elif [[ -n "$TARGET_TOKEN" ]]; then
+            echo "PUSH_TOKEN=$TARGET_TOKEN" >> "$GITHUB_ENV"
+          else
+            echo "Cross-repository write credential is missing. Claude will still produce a patch artifact, but cannot commit to the target repository."
+          fi
       - name: Require Anthropic Actions secret
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -58,6 +75,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          cd target
           claude -p "Implement the task in this checkout. Preserve existing approved assets and behavior. Do not access secrets, change GitHub settings, or push; the workflow handles commits. Task: $ASSIGNMENT" --permission-mode acceptEdits --max-turns 80 --max-budget-usd 20 --output-format text > claude-report.txt
           cat claude-report.txt
       - name: Commit completed code changes
@@ -65,20 +83,42 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          cd target
           git config user.name "touch-claude-bot"
           git config user.email "touch-claude-bot@users.noreply.github.com"
           git add -A
           git reset -q -- claude-report.txt || true
           if ! git diff --cached --quiet; then
             git commit -m "Claude Code: implement assigned changes"
-            git push origin "HEAD:${{ inputs.target_branch }}"
+            if [[ -n "${PUSH_TOKEN:-}" ]]; then
+              git -c http.extraheader="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$PUSH_TOKEN" | base64 -w0)" push origin "HEAD:${{ inputs.target_branch }}"
+            else
+              echo "::warning::Code changes saved as a patch artifact; target repository write token is not configured."
+            fi
           else
             echo "No code changes to commit."
           fi
+      - name: Export changes as portable patch
+        if: always()
+        shell: bash
+        run: |
+          if [[ -d target/.git ]]; then
+            git -C target diff HEAD~1 HEAD > claude-changes.patch 2>/dev/null || git -C target diff HEAD > claude-changes.patch || true
+            git -C target status --short > claude-status.txt || true
+          fi
+      - name: Upload code patch
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-code-changes
+          path: |
+            claude-changes.patch
+            claude-status.txt
+          if-no-files-found: ignore
       - name: Upload report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: claude-assignment-report
-          path: claude-report.txt
+          path: target/claude-report.txt
           if-no-files-found: ignore
