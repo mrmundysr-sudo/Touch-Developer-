@@ -145,6 +145,13 @@ public class SettingsScreen extends Screen {
                         }
                     }
                     Properties values = SetupBackup.decrypt(bytes.toByteArray(), password);
+                    // A valid backup may contain only OpenHands settings. Never claim
+                    // GitHub was restored when the backup has no GitHub token.
+                    if (!values.containsKey(ServiceLocator.KEY_GITHUB_TOKEN)
+                            || values.getProperty(ServiceLocator.KEY_GITHUB_TOKEN, "").trim().isEmpty()) {
+                        return "This setup file contains no GitHub token. GitHub remains disconnected. "
+                                + "Restore a backup made while GitHub was connected, or save a GitHub token in Setup.";
+                    }
                     Properties old = new Properties();
                     for (String key : values.stringPropertyNames()) {
                         String value = main.services().credentials().retrieve(key);
@@ -159,7 +166,14 @@ public class SettingsScreen extends Screen {
                             return "Could not restore secure storage. Previous settings were restored where possible.";
                         }
                     }
-                    return "Setup restored. Connections still depend on the saved tokens being valid.";
+                    String restoredGitHub = main.services().credentials().retrieve(ServiceLocator.KEY_GITHUB_TOKEN);
+                    if (restoredGitHub == null || restoredGitHub.trim().isEmpty()) {
+                        return "Restore finished, but GitHub credentials could not be read back. "
+                                + "GitHub remains disconnected; check device secure storage.";
+                    }
+                    return "GitHub token restored and verified in secure storage. "
+                            + "Other connection settings restored where included. "
+                            + "GitHub access still depends on the token being valid.";
                 } else {
                     Properties values = new Properties();
                     for (String key : SetupBackup.KEYS) {
