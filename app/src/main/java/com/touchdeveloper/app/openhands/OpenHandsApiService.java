@@ -34,7 +34,7 @@ public class OpenHandsApiService implements OpenHandsService {
         if (!isConfigured()) {
             return "OpenHands endpoint not configured";
         }
-        return "OpenHands endpoint: " + endpoint + (token.isEmpty() ? " (no token)" : " (token stored)");
+        return "OpenHands Cloud V1: " + endpoint + (token.isEmpty() ? " (API key missing)" : " (API key stored)");
     }
 
     @Override
@@ -43,65 +43,105 @@ public class OpenHandsApiService implements OpenHandsService {
                 "https://app.all-hands.dev/");
     }
 
+    /**
+     * OpenHands Cloud V1 starts a repository-backed coding conversation.
+     * The returned id is a START TASK id, not proof that the agent has finished.
+     * This integration does not choose or charge for a model; the account profile
+     * controls that, and users must confirm available credits separately.
+     */
     @Override
     public Result<String> sendInstructions(BuildRequest request) {
-        if (!isConfigured()) {
-            return Result.failure("No OpenHands endpoint is configured. Store an endpoint in Settings first. "
-                    + "Nothing was sent.");
-        }
-        String body = "{\"instructions\":\"" + Json.escape(request.getAiInstructions())
-                + "\",\"repository\":\"" + Json.escape(request.getRepoFullName())
-                + "\",\"branch\":\"" + Json.escape(request.getBranch()) + "\"}";
-        Http.Response response = Http.post(endpoint + "/instructions", token, body);
-        if (!response.ok()) {
-            return Result.failure("OpenHands rejected the request (" + Http.statusText(response) + "): "
-                    + safeMessage(response) + ". The endpoint contract is unverified.");
-        }
-        return Result.success("OpenHands returned HTTP " + response.code
-                + ", which confirms it accepted the request. Build success is not implied.",
-                response.body);
+        return startConversation(request);
     }
 
     @Override
     public Result<String> startBuild(BuildRequest request) {
-        if (!isConfigured()) {
-            return Result.failure("No OpenHands endpoint is configured, so no build was started. "
-                    + "Use the demo build to preview the flow.");
+        // Kept for compatibility with the existing workspace UI. This now starts
+        // an OpenHands coding conversation, NOT an APK build.
+        return startConversation(request);
+    }
+
+    private Result<String> startConversation(BuildRequest request) {
+        if (!isConfigured() || token.isEmpty()) {
+            return Result.failure("OpenHands Cloud endpoint and API key are required. Nothing was sent.");
         }
-        String body = "{\"repository\":\"" + Json.escape(request.getRepoFullName())
-                + "\",\"branch\":\"" + Json.escape(request.getBranch())
-                + "\",\"task\":\"assembleDebug\"}";
-        Http.Response response = Http.post(endpoint + "/builds", token, body);
+        if (request == null || request.getRepoFullName() == null
+                || request.getRepoFullName().trim().isEmpty()) {
+            return Result.failure("Select a GitHub repository before starting OpenHands.");
+        }
+        if (request.getAiInstructions() == null || request.getAiInstructions().trim().isEmpty()) {
+            return Result.failure("Enter coding instructions before starting OpenHands.");
+        }
+        String instructions = "Work only on GitHub branch: " + request.getBranch()
+                + ". Do not modify main/master. Commit or push source changes to that branch "
+                + "only when authorized. Do not build APKs or run paid model calls without "
+                + "authorization.\\n\\n" + request.getAiInstructions();
+        String body = "{\\"initial_message\\":{\\"content\\":[{\\"type\\":\\"text\\",\\"text\\":\\""
+                + Json.escape(instructions) + "\\"}]},\\"selected_repository\\":\\""
+                + Json.escape(request.getRepoFullName()) + "\\"}";
+        Http.Response response = Http.post(baseUrl() + "/api/v1/app-conversations", token, body);
         if (!response.ok()) {
-            return Result.failure("OpenHands did not accept the build (" + Http.statusText(response) + "): "
-                    + safeMessage(response) + ". The endpoint contract is unverified.");
+            return Result.failure("OpenHands could not start a conversation ("
+                    + Http.statusText(response) + "): " + safeMessage(response));
         }
-        String reference = Http.stringField(response.body, "id");
-        if (reference == null) {
-            reference = Http.stringField(response.body, "job");
+        String taskId = Http.stringField(response.body, "id");
+        if (taskId == null || taskId.isEmpty()) {
+            return Result.failure("OpenHands returned HTTP " + response.code
+                    + " without a start-task ID. Check the OpenHands dashboard.");
         }
-        if (reference == null) {
-            reference = "openhands-" + System.currentTimeMillis();
-        }
-        return Result.success("OpenHands returned HTTP " + response.code
-                + " and a job reference. Use Refresh status to poll it.", reference);
+        return Result.success("OpenHands accepted a conversation start request; "
+                + "the agent has not been verified as running or finished. Start task: " + taskId,
+                "task:" + taskId);
     }
 
     @Override
     public Result<String> buildStatus(String jobReference) {
-        if (!isConfigured()) {
-            return Result.failure("No OpenHands endpoint is configured, so there is no remote job to poll.");
+        if (!isConfigured() || token.isEmpty()) {
+            return Result.failure("OpenHands Cloud endpoint or API key is missing.");
         }
-        if (jobReference == null || jobReference.isEmpty()) {
-            return Result.failure("No build job reference is available to poll.");
+        if (jobReference == null || jobReference.trim().isEmpty()) {
+            return Result.failure("No OpenHands start-task or conversation reference is available.");
         }
-        Http.Response response = Http.get(endpoint + "/builds/" + jobReference, token);
+        if (jobReference.startsWith("task:")) {
+            String taskId = jobReference.substring(5);
+            Http.Response response = Http.get(baseUrl()
+                    + "/api/v1/app-conversations/start-tasks?ids=" + taskId, token);
+            if (!response.ok()) {
+                return Result.failure("OpenHands start status failed ("
+                        + Http.statusText(response) + "): " + safeMessage(response));
+            }
+            String status = Http.stringField(response.body, "status");
+            String conversationId = Http.stringField(response.body, "app_conversation_id");
+            if ("READY".equalsIgnoreCase(status) && conversationId != null
+                    && !conversationId.isEmpty()) {
+                return Result.success("OpenHands workspace ready. Conversation: " + conversationId
+                        + ". Coding completion has not been verified. "
+                        + baseUrl() + "/conversations/" + conversationId,
+                        "conversation:" + conversationId);
+            }
+            return Result.success("OpenHands workspace startup: "
+                    + (status == null ? "unknown" : status)
+                    + ". Refresh to check again. This is not an APK build.", jobReference);
+        }
+        String id = jobReference.startsWith("conversation:")
+                ? jobReference.substring("conversation:".length()) : jobReference;
+        Http.Response response = Http.get(baseUrl()
+                + "/api/v1/app-conversations?ids=" + id, token);
         if (!response.ok()) {
-            return Result.failure("Could not read build status (" + Http.statusText(response) + "): "
-                    + safeMessage(response) + ". The endpoint contract is unverified.");
+            return Result.failure("OpenHands conversation status failed ("
+                    + Http.statusText(response) + "): " + safeMessage(response));
         }
-        String status = Http.stringField(response.body, "status");
-        return Result.success("OpenHands status: " + (status == null ? "unknown" : status), response.body);
+        String status = Http.stringField(response.body, "execution_status");
+        return Result.success("OpenHands coding execution: "
+                + (status == null ? "unknown" : status)
+                + ". GitHub commits and APK builds must be verified separately.",
+                "conversation:" + id);
+    }
+
+    private String baseUrl() {
+        String base = endpoint;
+        while (base.endsWith("/")) base = base.substring(0, base.length() - 1);
+        return base;
     }
 
     private String safeMessage(Http.Response response) {
