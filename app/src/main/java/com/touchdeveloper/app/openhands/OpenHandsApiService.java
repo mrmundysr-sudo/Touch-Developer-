@@ -76,9 +76,9 @@ public class OpenHandsApiService implements OpenHandsService {
                 + ". Do not modify main/master. Commit or push source changes to that branch "
                 + "only when authorized. Do not build APKs or run paid model calls without "
                 + "authorization.\\n\\n" + request.getAiInstructions();
-        String body = "{\\"initial_message\\":{\\"content\\":[{\\"type\\":\\"text\\",\\"text\\":\\""
-                + Json.escape(instructions) + "\\"}]},\\"selected_repository\\":\\""
-                + Json.escape(request.getRepoFullName()) + "\\"}";
+        String body = "{\"initial_message\":{\"content\":[{\"type\":\"text\",\"text\":\""
+                + Json.escape(instructions) + "\"}]},\"selected_repository\":\""
+                + Json.escape(request.getRepoFullName()) + "\"}";
         Http.Response response = Http.post(baseUrl() + "/api/v1/app-conversations", token, body);
         if (!response.ok()) {
             return Result.failure("OpenHands could not start a conversation ("
