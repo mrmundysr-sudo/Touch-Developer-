@@ -66,8 +66,11 @@ public final class Http {
             conn.setRequestMethod(method);
             conn.setConnectTimeout(connectTimeoutMs);
             conn.setReadTimeout(readTimeoutMs);
-            conn.setRequestProperty("Accept", "application/vnd.github+json");
-            conn.setRequestProperty("X-GitHub-Api-Version", "2022-11-28");
+            conn.setRequestProperty("Accept", "application/json");
+            if ("api.github.com".equalsIgnoreCase(conn.getURL().getHost())) {
+                conn.setRequestProperty("Accept", "application/vnd.github+json");
+                conn.setRequestProperty("X-GitHub-Api-Version", "2022-11-28");
+            }
             conn.setRequestProperty("User-Agent", "TouchDeveloper/1.0");
             if (token != null && !token.isEmpty()) {
                 conn.setRequestProperty("Authorization", "Bearer " + token);
