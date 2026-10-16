@@ -5,6 +5,8 @@ import com.touchdeveloper.app.model.Repo;
 import com.touchdeveloper.app.util.Http;
 import com.touchdeveloper.app.util.Json;
 import com.touchdeveloper.app.util.Result;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 /**
  * OpenHands integration against a user-configured endpoint.
@@ -74,10 +76,11 @@ public class OpenHandsApiService implements OpenHandsService {
         String instructions = "Work only on GitHub branch: " + request.getBranch()
                 + ". Do not modify main/master. Commit or push source changes to that branch "
                 + "only when authorized. Do not build APKs or run paid model calls without "
-                + "authorization.\\n\\n" + request.getAiInstructions();
+                + "authorization.\n\n" + request.getAiInstructions();
         String body = "{\"initial_message\":{\"content\":[{\"type\":\"text\",\"text\":\""
                 + Json.escape(instructions) + "\"}]},\"selected_repository\":\""
-                + Json.escape(request.getRepoFullName()) + "\"}";
+                + Json.escape(request.getRepoFullName()) + "\",\"selected_branch\":\""
+                + Json.escape(request.getBranch()) + "\"}";
         Http.Response response = Http.post(baseUrl() + "/api/v1/app-conversations", token, body);
         if (!response.ok()) {
             return Result.failure("OpenHands could not start a conversation ("
@@ -109,8 +112,13 @@ public class OpenHandsApiService implements OpenHandsService {
                 return Result.failure("OpenHands start status failed ("
                         + Http.statusText(response) + "): " + safeMessage(response));
             }
-            String status = Http.stringField(response.body, "status");
-            String conversationId = Http.stringField(response.body, "app_conversation_id");
+            JSONObject task = firstObject(response.body);
+            String status = task.optString("status", "unknown");
+            String conversationId = task.optString("app_conversation_id", "");
+            if ("ERROR".equalsIgnoreCase(status)) {
+                return Result.failure("OpenHands workspace startup failed: "
+                        + task.optString("error", "See the OpenHands dashboard."));
+            }
             if ("READY".equalsIgnoreCase(status) && conversationId != null
                     && !conversationId.isEmpty()) {
                 return Result.success("OpenHands workspace ready. Conversation: " + conversationId
@@ -130,11 +138,25 @@ public class OpenHandsApiService implements OpenHandsService {
             return Result.failure("OpenHands conversation status failed ("
                     + Http.statusText(response) + "): " + safeMessage(response));
         }
-        String status = Http.stringField(response.body, "execution_status");
+        String status = firstObject(response.body).optString("execution_status", "unknown");
         return Result.success("OpenHands coding execution: "
                 + (status == null ? "unknown" : status)
                 + ". GitHub commits and APK builds must be verified separately.",
                 "conversation:" + id);
+    }
+
+    /** Cloud status endpoints return arrays, not flat JSON objects. */
+    private JSONObject firstObject(String body) {
+        try {
+            String json = body == null ? "" : body.trim();
+            if (json.startsWith("[")) {
+                JSONArray values = new JSONArray(json);
+                return values.length() > 0 ? values.getJSONObject(0) : new JSONObject();
+            }
+            return new JSONObject(json);
+        } catch (Exception ignored) {
+            return new JSONObject();
+        }
     }
 
     private String baseUrl() {
