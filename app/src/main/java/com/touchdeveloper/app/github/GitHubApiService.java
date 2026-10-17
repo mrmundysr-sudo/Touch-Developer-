@@ -502,6 +502,21 @@ public class GitHubApiService implements GitHubService {
     }
 
     @Override
+    public Result<String> deleteBranch(Repo repo, String branch) {
+        if (branch == null || branch.equals(repo.getCurrentBranch())) {
+            return Result.failure("Cannot delete the active branch.");
+        }
+        Http.Response response = Http.delete(API + "/repos/" + repo.getOwner() + "/" + repo.getName()
+                + "/git/refs/heads/" + encode(branch), token, null);
+        if (!response.ok()) {
+            return Result.failure("Branch deletion failed (" + Http.statusText(response) + "): "
+                    + describeError(response));
+        }
+        repo.getBranches().remove(branch);
+        return Result.success("GitHub confirmed deletion of " + branch + ".", branch);
+    }
+
+    @Override
     public Result<String> deleteRepository(Repo repo) {
         Http.Response response = Http.delete(API + "/repos/" + repo.getOwner() + "/" + repo.getName(),
                 token, null);

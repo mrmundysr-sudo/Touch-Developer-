@@ -73,6 +73,10 @@ public class FileScreen extends Screen {
         LinearLayout actions = new LinearLayout(main);
         actions.setOrientation(LinearLayout.HORIZONTAL);
 
+        Button branchesButton = Ui.button(main, "Branches");
+        branchesButton.setOnClickListener(v -> main.show(new BranchManagerScreen(main)));
+        actions.addView(branchesButton);
+
         Button repoActions = Ui.button(main, "Repository actions");
         repoActions.setOnClickListener(v -> main.show(new RepoActionScreen(main)));
         actions.addView(repoActions);

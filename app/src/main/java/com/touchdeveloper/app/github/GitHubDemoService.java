@@ -195,6 +195,11 @@ public class GitHubDemoService implements GitHubService {
     }
 
     @Override
+    public Result<String> deleteBranch(Repo repo, String branch) {
+        return Result.failure("[DEMO] Cannot delete a real GitHub branch.");
+    }
+
+    @Override
     public Result<String> deleteRepository(Repo repo) {
         return Result.demo("Demo deletion of " + repo.getFullName()
                 + ". Nothing was deleted on GitHub.", repo.getFullName());

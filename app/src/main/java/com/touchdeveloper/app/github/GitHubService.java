@@ -69,5 +69,7 @@ public interface GitHubService {
 
     Result<String> createBranch(Repo repo, String newBranch);
 
+    Result<String> deleteBranch(Repo repo, String branch);
+
     Result<String> deleteRepository(Repo repo);
 }
